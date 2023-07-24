@@ -359,6 +359,9 @@ if 'TMDB_TOKEN' in os.environ:
 # returns triples of [title, slug, metadata]
 def scan_dir(url_path):
     triples = []
+    json_fpath = make_file_path(g_media_dir, url_path, "mserve.json")
+    if not os.path.isfile(json_fpath):
+        return []
     dpath = make_file_path(g_media_dir, url_path)
     for slug in os.listdir(dpath):
         json_fpath = make_file_path(g_media_dir, url_path, slug, "mserve.json")
@@ -399,6 +402,9 @@ def parse_filename(fname):
 # E.g. [[1,1,'tng-s1e1.mp4'], [1,2,'tng-s1e2.mp4']]
 def scan_for_videos(url_path):
     video_triples = []
+    json_fpath = make_file_path(g_media_dir, url_path, "mserve.json")
+    if not os.path.isfile(json_fpath):
+        return []
     dpath = make_file_path(g_media_dir, url_path)
     episode_triples = []
     video_triple = []
