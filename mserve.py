@@ -363,6 +363,7 @@ def slugify(name):
             slug += ch  # allow these chars
         else:
             slug += '-'  # turn anything else into a dash
+    re.sub('--+', '-', slug)
     return slug
 
 # Rename a file (or dir) using a slugified name.
@@ -432,7 +433,7 @@ def load_json(fpath):
 
 # Parse the season and episode number from a filename.
 def parse_filename(fname):
-    episode_pattern = re.compile(".*?-s(\d)+e(\d+)")
+    episode_pattern = re.compile(".*?[sS](\d)+[eE](\d+)")
     m = episode_pattern.match(fname)
     if m and len(m.groups()) == 2:
         season_num = int(m.group(1))
