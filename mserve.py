@@ -19,6 +19,7 @@ import re
 import json
 import http.server
 import mimetypes
+import urllib.request
 
 #
 # HTTP / HTML utils
@@ -386,10 +387,10 @@ if 'MSERVE_MEDIA_DIR' in os.environ:
 # The token used to access the themoviedb.org API.
 g_tmdb_token = None
 if 'TMDB_TOKEN' in os.environ:
-    g_tmdb_token = os.env['TMDB_TOKEN']
+    g_tmdb_token = os.environ['TMDB_TOKEN']
 
 #
-# mserve disk storage layer
+# mserve media storage layer
 #
 
 # Find show / directory slugs at the given subpath.
@@ -410,19 +411,23 @@ def scan_dir(url_path):
                     title = metadata.get('title', slug)
                     triples.append([title, slug, metadata])
             except Exception as e:
-                sys.stderr.write("parse_mserve_json: exception: %s\n" % e)
+                sys.stderr.write("scan_dir: exception: %s\n" % e)
     triples.sort()
     return triples
 
 # Load the mserve.json if present.
-def parse_mserve_json(url_path):
-    json_fpath = make_file_path(g_media_dir, url_path, "mserve.json")
-    if os.path.isfile(json_fpath):
+def load_mserve_json(url_path):
+    fpath = make_file_path(g_media_dir, url_path, "mserve.json")
+    return load_json(fpath)
+
+# Load the json file if present.
+def load_json(fpath):
+    if os.path.isfile(fpath):
         try:
-            with open(json_fpath) as fd:
+            with open(fpath) as fd:
                 return json.load(fd)
         except Exception as e:
-            sys.stderr.write("parse_mserve_json: exception: %s\n" % e)
+            sys.stderr.write("load_json: exception: %s\n" % e)
     return None
 
 # Parse the season and episode number from a filename.
@@ -461,6 +466,46 @@ def scan_for_videos(url_path):
     return episode_triples + video_triples
 
 #
+# themoviedb.org layer.
+#
+
+# Return the JSON for the given URL, using / populating cache if available.
+# Returns None in case of failure.
+def get_json_from_url(url, cache_fpath, headers):
+    dpath = os.path.dirname(cache_fpath)
+    os.makedirs(dpath, exist_ok=True)
+    cached_json = load_json(cache_fpath)
+    if cached_json:
+        return cached_json
+    try:
+        sys.stderr.write("Fetching %s\n" % url)
+        req = urllib.request.Request(url)
+        req.add_header('Accept', 'application/json')
+        for pair in headers:
+            req.add_header(pair[0], pair[1])
+        with urllib.request.urlopen(req) as fd:
+            data = fd.read()
+        with open(cache_fpath, 'wb') as fd:
+            fd.write(data)
+        return json.loads(data.decode('utf-8'))
+    except Exception as e:
+        sys.stderr.write("get_json_from_url: exception: %s\n" % e)
+        return None
+
+# Return the JSON for the given show, using cache if available.
+# tmdb_id should be e.g. "tv/1087" or "movie/199".
+def get_tmdb_show_details(tmdb_id):
+    tmdb_type = tmdb_id.split("/")[0]
+    tmdb_num = tmdb_id.split("/")[1]
+    dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
+    fpath = make_file_path(dpath, "%s.json" % tmdb_num)
+    url = "https://api.themoviedb.org/3/%s" % tmdb_id
+    headers = [
+        ['Authorization', 'Bearer %s' % g_tmdb_token]
+    ]
+    return get_json_from_url(url, fpath, headers)
+
+#
 # /.../:file/player endpoint
 #
 
@@ -468,7 +513,7 @@ def player_endpoint(handler):
     full_url_path, query_dict = parse_GET_path(handler.path)
     show_url_path = '/'.join(full_url_path.split('/')[:-2])
     fname = full_url_path.split('/')[-2]
-    metadata = parse_mserve_json(show_url_path)
+    metadata = load_mserve_json(show_url_path)
     if metadata is None:
         send_404(handler)
         return
@@ -519,7 +564,6 @@ def render_player(show_url_path, title, season, episode, fname, content_type, fi
 def file_endpoint(handler):
     url_path, query_dict = parse_GET_path(handler.path)
     fpath = make_file_path(g_media_dir, url_path)
-    print("fpath: %s" % fpath)
     is_head = (handler.command == 'HEAD')
     send_file(handler, fpath, is_head)
 
@@ -542,7 +586,7 @@ add_regex_route(
 
 def directory_endpoint(handler):
     url_path, query_dict = parse_GET_path(handler.path)
-    metadata = parse_mserve_json(url_path)
+    metadata = load_mserve_json(url_path)
     if metadata is None:
         send_404(handler)
         return
@@ -550,7 +594,11 @@ def directory_endpoint(handler):
         body = render_directory(handler, url_path)
         send_html(handler, 200, body)
     elif metadata["type"] == "series" or metadata["type"] == "movie":
-        body = render_show(handler, url_path, metadata)
+        tmdb_json = {}
+        tmdb_id = metadata.get('tmdb_id')
+        if tmdb_id:
+            tmdb_json = get_tmdb_show_details(tmdb_id)
+        body = render_show(handler, url_path, metadata, tmdb_json)
         send_html(handler, 200, body)
     else:
         send_500("Bad mserve.json")
@@ -581,7 +629,7 @@ def render_directory(handler, url_path):
     html += "</html>\n"
     return html
 
-def render_show(handler, url_path, metadata):
+def render_show(handler, url_path, metadata, tmdb_json):
     def render_links(fname):
         file_url = make_url_path(url_path, fname)
         player_url = make_url_path(url_path, fname, 'player')
@@ -614,7 +662,15 @@ def render_show(handler, url_path, metadata):
     html += "</head>\n"
     html += "<body>\n"
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
-    if 'title' in metadata:
+    if 'title' in tmdb_json or 'name' in tmdb_json:
+        title = tmdb_json.get('title', tmdb_json.get('name'))
+        release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
+        html += '<h2>%s (%s)</h2>\n' % (title, release_date.split('-')[0])
+        html += '<p><i>%s</i></p>\n' % tmdb_json['tagline']
+        poster_url = "https://image.tmdb.org/t/p/w500%s" % tmdb_json['poster_path']
+        html += '<img src="%s" style="max-width:100%%">\n' % poster_url
+        html += '<p>%s</p>\n' % tmdb_json['overview']
+    elif 'title' in metadata:
         html += '<h2>%s</h2>\n' % metadata['title']
     video_triples = scan_for_videos(url_path)
     if len(video_triples):
