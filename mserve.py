@@ -473,7 +473,7 @@ def player_endpoint(handler):
         send_404(handler)
         return
     (season, episode, _) = parse_filename(fname)
-    fpath = make_file_path(show_url_path, fname)
+    fpath = make_file_path(g_media_dir, show_url_path, fname)
     content_type = get_content_type(fpath)
     file_size = os.path.getsize(fpath)
     title = metadata.get('title', fname)
@@ -503,6 +503,7 @@ def render_player(show_url_path, title, season, episode, fname, content_type, fi
     html += "<h2>%s</h2>\n" % title
     if season is not None and episode is not None:
         html += "<h3>Season %s, Episode %s</h3>\n" % (season, episode)
+    html += '<ul><li>%s (%s)</li></ul>\n' % (fname, format_filesize(file_size))
     html += '<video id="my-video" class="video-js" controls preload="auto" width="640" height="480" data-setup="{}">\n'
     html += '<source src="%s" type="%s" />\n' % (file_url, content_type)
     html += "</video>\n"
