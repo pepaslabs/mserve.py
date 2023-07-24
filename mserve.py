@@ -445,6 +445,7 @@ add_regex_route(
 def render_player(show_url_path, title, season, episode, fname, content_type):
     html = "<!DOCTYPE html>\n<html>\n"
     html += "<head>\n"
+    html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
     html += '<link href="https://vjs.zencdn.net/8.3.0/video-js.css" rel="stylesheet" />'
     html += "<style>\n"
     html += "@media (prefers-color-scheme: dark) { body { background-color: #111; color: white; }}\n"
@@ -517,6 +518,9 @@ add_regex_route(
 
 def render_directory(handler, url_path):
     html = "<!DOCTYPE html>\n<html>\n"
+    html += "<head>\n"
+    html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
+    html += "</head>\n"
     html += "<body>\n"
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     triples = scan_dir(url_path)
@@ -559,6 +563,9 @@ def render_show(handler, url_path, metadata):
         html += 'To play <tt>vlc-file://</tt> URLs, install <a href="https://github.com/pepaslabs/VLCFileUrl">VLCFileUrl</a>.\n'
         return html
     html = "<!DOCTYPE html>\n<html>\n"
+    html += "<head>\n"
+    html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
+    html += "</head>\n"
     html += "<body>\n"
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     if 'title' in metadata:
