@@ -7,13 +7,10 @@
 # Released under the terms of the MIT license.
 # See https://opensource.org/license/mit/
 
-# Note: certain video files aren't supported via HTML5 <video>.
-# To open these files directly using e.g. VLC, use LinCastor to associate
-# a custom URL scheme to a bit of shell script.
-# - Download and install LinCastor https://onflapp.github.io/blog/pages/LinCastor.html
-# - Register the URL scheme `vlc-file://`
-# - Associate it with the following bit of shell:
-#     open -a VLC "http://$URL_VALUE"
+# Note: certain video files aren't supported via HTML5 <video> (i.e. .mkv).
+# To open these files directly using e.g. VLC, use VLCFileUrl to associate
+# the custom URL scheme vlc-file:// with VLC.
+# See https://github.com/pepaslabs/VLCFileUrl
 
 import sys
 import os
@@ -557,7 +554,12 @@ def render_show(handler, url_path, metadata):
         links.append(link)
         html = '[ %s ]' % ' | '.join(links)
         return html
-
+    def render_footer():
+        html = ""
+        html += "<br><br><br>\n"
+        html += "<hr>\n"
+        html += 'To play <tt>vlc-file://</tt> URLs, install <a href="https://github.com/pepaslabs/VLCFileUrl">VLCFileUrl</a>.\n'
+        return html
     html = ""
     html += "<html>\n"
     html += "<body>\n"
@@ -585,6 +587,7 @@ def render_show(handler, url_path, metadata):
             links_html = render_links(fname)
             html += '<li>%s %s</li>\n' % (item_name, links_html)
         html += "</ul>\n"
+    html += render_footer()
     html += "</body>\n"
     html += "</html>\n"
     return html
