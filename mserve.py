@@ -352,6 +352,28 @@ def is_html5_video(fpath):
     ]
     return os.path.splitext(fpath)[-1].lower() in exts
 
+# Turn a string into a "slug".
+def slugify(name):
+    slug = ""
+    for ch in name.lower():
+        if ch in "'":
+            continue  # drop these chars
+        elif re.match(r'^[a-zA-Z0-9-.\/]+$', ch):
+            slug += ch  # allow these chars
+        else:
+            slug += '-'  # turn anything else into a dash
+    return slug
+
+# Rename a file (or dir) using a slugified name.
+def slugify_file(fname):
+    fname = fname.rstrip('/')
+    slug_fname = slugify(fname)
+    if fname == slug_fname:
+        return
+    answer = input("Rename '%s' to '%s'? [Yn]: " % (fname, slug_fname))
+    if answer.lower() == 'y' or answer == '':
+        os.rename(fname, slug_fname)
+
 #
 # mserve configuration via environment
 #
@@ -633,8 +655,14 @@ def render_show(handler, url_path, metadata):
 #
 
 if __name__ == "__main__":
-    port = 8000
-    address_pair = ('', 8000)
-    server = http.server.ThreadingHTTPServer(address_pair, Handler)
-    sys.stderr.write("Listening on port %s\n" % port)
-    server.serve_forever()
+    if sys.argv[0].split('/')[-1] == 'slugify.py':
+        # if we were invoked as 'slugify.py' symlink, act as a renaming utility.
+        for arg in sys.argv[1:]:
+            slugify_file(arg)
+    else:
+        # otherwise start the server.
+        port = 8000
+        address_pair = ('', 8000)
+        server = http.server.ThreadingHTTPServer(address_pair, Handler)
+        sys.stderr.write("Listening on port %s\n" % port)
+        server.serve_forever()
