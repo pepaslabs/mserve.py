@@ -61,6 +61,22 @@ def render_url_path_links(url_path):
     html += '&nbsp;/&nbsp;%s' % chunks[-1]
     return html
 
+# Format a filesize to be human-readable.
+def format_filesize(nbytes):
+    n = nbytes
+    for suffix in [' bytes', 'KB', 'MB', 'GB', 'TB']:
+        if n > 999:
+            n = n / 1024.0
+            continue
+        elif n > 99:
+            return "%0.0f%s" % (n, suffix)
+        elif n > 9:
+            return "%0.1f%s" % (n, suffix)
+        else:
+            return "%0.2f%s" % (n, suffix)
+    else:
+        return '%s bytes' % nbytes
+
 # Given '/foo?bar=42, return ['/foo', {'bar':42}]
 def parse_GET_path(path_query):
     if '?' not in path_query:
@@ -437,8 +453,9 @@ def player_endpoint(handler):
     (season, episode, _) = parse_filename(fname)
     fpath = make_file_path(show_url_path, fname)
     content_type = get_content_type(fpath)
+    file_size = os.path.getsize(fpath)
     title = metadata.get('title', fname)
-    body = render_player(show_url_path, title, season, episode, fname, content_type)
+    body = render_player(show_url_path, title, season, episode, fname, content_type, file_size)
     send_html(handler, 200, body)
 
 add_regex_route(
@@ -448,7 +465,7 @@ add_regex_route(
     player_endpoint
 )
 
-def render_player(show_url_path, title, season, episode, fname, content_type):
+def render_player(show_url_path, title, season, episode, fname, content_type, file_size):
     html = "<!DOCTYPE html>\n<html>\n"
     html += '<head>\n<meta charset="UTF-8">\n'
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
@@ -582,6 +599,8 @@ def render_show(handler, url_path, metadata):
         current_season = None
         for video_triple in video_triples:
             season_num, episode_num, fname = video_triple
+            fpath = make_file_path(g_media_dir, url_path, fname)
+            file_size = os.path.getsize(fpath)
             if season_num != current_season:
                 html += "</ul>\n"
                 if season_num is None:
@@ -590,12 +609,19 @@ def render_show(handler, url_path, metadata):
                     html += '<h3>Season %s</h3>\n' % season_num
                 html += "<ul>\n"
             current_season = season_num
+            html += '<li>'
             if episode_num is not None:
-                item_name = "Episode %s" % episode_num
+                html += "Episode %s\n" % episode_num
+                html += '<ul>\n'
+                html += '<li>%s (%s)</li>\n' % (fname, format_filesize(file_size))
+                html += '<li>%s</li>\n' % render_links(fname)
+                html += '</ul>\n'
             else:
-                item_name = fname
-            links_html = render_links(fname)
-            html += '<li>%s %s</li>\n' % (item_name, links_html)
+                html += '%s (%s)\n' % (fname, format_filesize(file_size))
+                html += '<ul>\n'
+                html += '<li>%s</li>\n' % render_links(fname)
+                html += '</ul>\n'
+            html += '</li>'
         html += "</ul>\n"
     html += render_footer()
     html += "</body>\n"
