@@ -45,7 +45,7 @@ def is_chrome(handler):
     return 'Chrome' in user_agent
 
 # Break an url_path down into componentized hyperlinks.
-def make_url_path_links(url_path):
+def render_url_path_links(url_path):
     if url_path == '/':
         return 'mserve'
     html = ''
@@ -443,8 +443,7 @@ add_regex_route(
 )
 
 def render_player(show_url_path, title, season, episode, fname, content_type):
-    html = ""
-    html += "<html>\n"
+    html = "<!DOCTYPE html>\n<html>\n"
     html += "<head>\n"
     html += '<link href="https://vjs.zencdn.net/8.3.0/video-js.css" rel="stylesheet" />'
     html += "<style>\n"
@@ -454,7 +453,7 @@ def render_player(show_url_path, title, season, episode, fname, content_type):
     html += "<body>\n"
     file_url = make_url_path(show_url_path, fname)
     player_url = make_url_path(file_url, 'player')
-    html += "<h1>%s</h1>\n" % make_url_path_links(player_url)
+    html += "<h1>%s</h1>\n" % render_url_path_links(player_url)
     html += "<h2>%s</h2>\n" % title
     if season is not None and episode is not None:
         html += "<h3>Season %s, Episode %s</h3>\n" % (season, episode)
@@ -517,10 +516,9 @@ add_regex_route(
 )
 
 def render_directory(handler, url_path):
-    html = ""
-    html += "<html>\n"
+    html = "<!DOCTYPE html>\n<html>\n"
     html += "<body>\n"
-    html += "<h1>%s</h1>\n" % make_url_path_links(url_path)
+    html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     triples = scan_dir(url_path)
     if len(triples):
         html += "<ul>\n"
@@ -560,10 +558,9 @@ def render_show(handler, url_path, metadata):
         html += "<hr>\n"
         html += 'To play <tt>vlc-file://</tt> URLs, install <a href="https://github.com/pepaslabs/VLCFileUrl">VLCFileUrl</a>.\n'
         return html
-    html = ""
-    html += "<html>\n"
+    html = "<!DOCTYPE html>\n<html>\n"
     html += "<body>\n"
-    html += "<h1>%s</h1>\n" % make_url_path_links(url_path)
+    html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     if 'title' in metadata:
         html += '<h2>%s</h2>\n' % metadata['title']
     video_triples = scan_for_videos(url_path)
