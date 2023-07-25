@@ -162,12 +162,12 @@ def send_html(handler, code, body):
     handler.wfile.write(data)
 
 # Send the contents of a file.
-def send_file(handler, fpath, is_head):
-    def send_whole_file(handler, fd, content_type, file_size):
+def send_file(handler, fpath, is_head=False, data=None, content_type=None):
+    def send_whole_file(handler, fd, content_type, file_size, data=None):
         content_length = file_size
         handler.send_response(200)
         handler.send_header('Content-Length', "%s" % content_length)
-        handler.send_header('Content-Type', content_length)
+        handler.send_header('Content-Type', content_type)
         handler.send_header('Accept-Ranges', 'bytes')
         handler.end_headers()
         if is_head:
@@ -221,11 +221,12 @@ def send_file(handler, fpath, is_head):
         send_400("Unsupported Range header format")
         return
     try:
-        content_type = get_content_type(fpath)
+        if content_type is None:
+            content_type = get_content_type(fpath)
         file_size = os.path.getsize(fpath)
         fd = open(fpath, 'rb')
         if range_header is None:
-            send_whole_file(handler, fd, content_type, file_size)
+            send_whole_file(handler, fd, content_type, file_size, data)
         else:
             send_partial_file(handler, fd, content_type, file_size, range_header)
         fd.close()
@@ -330,7 +331,13 @@ def make_file_path(*args):
 
 # Guess the content type.
 def get_content_type(fpath):
-    return mimetypes.guess_type(fpath)[0] or 'application/octet-stream'
+    ext = os.path.splitext(fpath)[1].lower()
+    if ext == '.jpg' or ext == '.jpeg':
+        return 'image/jpeg'
+    elif ext == '.png':
+        return 'image/png'
+    else:
+        return mimetypes.guess_type(fpath)[0] or 'application/octet-stream'
 
 # This is a video file?
 def is_video(fpath):
@@ -407,12 +414,12 @@ def scan_dir(url_path):
         json_fpath = make_file_path(g_media_dir, url_path, slug, "mserve.json")
         if os.path.isfile(json_fpath):
             try:
-                with open(json_fpath) as fd:
+                with open(json_fpath, 'rb') as fd:
                     metadata = json.load(fd)
                     title = metadata.get('title', slug)
                     triples.append([title, slug, metadata])
             except Exception as e:
-                sys.stderr.write("scan_dir: exception: %s\n" % e)
+                sys.stderr.write("❌ scan_dir: exception: %s\n" % e)
     triples.sort()
     return triples
 
@@ -425,10 +432,20 @@ def load_mserve_json(url_path):
 def load_json(fpath):
     if os.path.isfile(fpath):
         try:
-            with open(fpath) as fd:
+            with open(fpath, 'rb') as fd:
                 return json.load(fd)
         except Exception as e:
-            sys.stderr.write("load_json: exception: %s\n" % e)
+            sys.stderr.write("❌ load_json: exception: %s\n" % e)
+    return None
+
+# Load the binary file if present.
+def load_file(fpath):
+    if os.path.isfile(fpath):
+        try:
+            with open(fpath, 'rb') as fd:
+                return fd.read()
+        except Exception as e:
+            sys.stderr.write("❌ load_file: exception: %s\n" % e)
     return None
 
 # Parse the season and episode number from a filename.
@@ -518,7 +535,7 @@ def get_json_from_url(url, cache_fpath, headers):
             fd.write(data)
         return json.loads(data.decode('utf-8'))
     except Exception as e:
-        sys.stderr.write("get_json_from_url: exception: %s\n" % e)
+        sys.stderr.write("❌ get_json_from_url: exception: %s\n" % e)
         return {}
 
 # Return the JSON for the given show, using cache if available.
@@ -539,6 +556,8 @@ def get_tmdb_show_details(tmdb_id):
 # tmdb_id should be e.g. "tv/1087".
 # Returns empty dictionary in case of failure.
 def get_tmdb_season_details(tmdb_id, season_num):
+    if season_num is None:
+        return {}
     tmdb_type = tmdb_id.split("/")[0]
     tmdb_num = tmdb_id.split("/")[1]
     dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
@@ -548,6 +567,28 @@ def get_tmdb_season_details(tmdb_id, season_num):
         ['Authorization', 'Bearer %s' % g_tmdb_token]
     ]
     return get_json_from_url(url, fpath, headers)
+
+# Return the data for the given URL, using / populating cache if available.
+# Returns None in case of failure.
+def get_file_from_url(url, cache_fpath, headers=[]):
+    dpath = os.path.dirname(cache_fpath)
+    os.makedirs(dpath, exist_ok=True)
+    cached_data = load_file(cache_fpath)
+    if cached_data:
+        return cached_data
+    try:
+        sys.stderr.write("Fetching %s\n" % url)
+        req = urllib.request.Request(url)
+        for pair in headers:
+            req.add_header(pair[0], pair[1])
+        with urllib.request.urlopen(req) as fd:
+            data = fd.read()
+        with open(cache_fpath, 'wb') as fd:
+            fd.write(data)
+        return data
+    except Exception as e:
+        sys.stderr.write("❌ get_file_from_url: exception: %s\n" % e)
+        return None
 
 #
 # /.../:file/player endpoint
@@ -600,6 +641,27 @@ def render_player(show_url_path, title, season, episode, fname, content_type, fi
     html += "</body>\n"
     html += "</html>\n"
     return html
+
+#
+# /tmdb-images/:size_class/:tmdb_image endpoint
+#
+
+def image_endpoint(handler):
+    url_path, query_dict = parse_GET_path(handler.path)
+    tmdb_image_fname = url_path.split('/')[-1]
+    size_class = url_path.split('/')[-2]
+    tmdb_image_url = "https://image.tmdb.org/t/p/%s/%s" % (size_class, tmdb_image_fname)
+    proxied_image_url = "/tmdb-images/%s/%s" % (size_class, tmdb_image_fname)
+    image_cache_fpath = make_file_path("~/.mserve/tmdb_cache/%s/%s" % (size_class, tmdb_image_fname))
+    data = get_file_from_url(tmdb_image_url, image_cache_fpath)
+    send_file(handler, image_cache_fpath, data=data)
+
+add_regex_route(
+    'GET',
+    '/tmdb-images/:size_class/:tmdb_image_fname',
+    re.compile('^\/tmdb-images\/w[0-9]+\/[a-zA-Z0-9]+\.(jpg|jpeg|png|webp)$'),
+    image_endpoint
+)
 
 #
 # /.../:file endpoint
@@ -713,19 +775,21 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
         tagline = tmdb_json.get('tagline','')
         if len(tagline):
             html += '<p><i>%s</i></p>\n' % tagline
-        poster_url = "https://image.tmdb.org/t/p/w500%s" % tmdb_json['poster_path']
-        html += '<img src="%s" style="max-width:100%%">\n' % poster_url
+        proxied_image_url = "/tmdb-images/w500%s" % tmdb_json['poster_path']
+        html += '<img src="%s" style="max-width:100%%">\n' % proxied_image_url
         html += '<p>%s</p>\n' % tmdb_json['overview']
     elif 'title' in metadata:
         html += '<h1>%s</h1>\n' % metadata['title']
     season_groups = scan_for_videos(url_path)
     for season_group in season_groups:
-        # E.g. (1,[(1,'tng-s1e1.mp4'),(2,'tng-s1e2.mp4')])
         season_num, episode_pairs = season_group
         season_json = get_tmdb_season_details(tmdb_id, season_num)
         episodes_jsons = season_json.get('episodes', [])
         if season_num:
-            html += '<h2>Season %s (%s)</h2>\n' % (season_num, season_json.get('air_date', '').split('-')[0])
+            html += '<h2>Season %s' % season_num
+            if 'air_date' in season_json:
+                html += ' (%s)' % season_json.get('air_date', '').split('-')[0]
+            html += '</h2>\n'
             for episode_num, fname in episode_pairs:
                 fpath = make_file_path(g_media_dir, url_path, fname)
                 file_size = os.path.getsize(fpath)
@@ -733,7 +797,8 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
                 if episode_index < len(episodes_jsons) and episodes_jsons[episode_index].get('episode_number',-1) == episode_num:
                     episode_json = episodes_jsons[episode_index]
                     html += "<h3>Episode %s: %s</h3>\n" % (episode_num, episode_json.get('name'))
-                    html += '<img src="https://image.tmdb.org/t/p/w342%s" style="max-width:100%%">\n' % episode_json.get('still_path')
+                    proxied_image_url = "/tmdb-images/w342%s" % episode_json.get('still_path')
+                    html += '<img src="%s" style="max-width:100%%">\n' % proxied_image_url
                     html += '<ul>\n'
                     html += '<li>%s</li>\n' % episode_json.get('overview', '')
                     html += '<li>%s (%s)</li>\n' % (fname, format_filesize(file_size))
