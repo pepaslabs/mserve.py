@@ -162,13 +162,16 @@ def send_html(handler, code, body):
     handler.wfile.write(data)
 
 # Send the contents of a file.
-def send_file(handler, fpath, is_head=False, data=None, content_type=None):
-    def send_whole_file(handler, fd, content_type, file_size, data=None):
+def send_file(handler, fpath, is_head=False, data=None, content_type=None, immutable=False):
+    def send_whole_file(handler, fd, content_type, file_size, data=None, immutable=False):
         content_length = file_size
         handler.send_response(200)
         handler.send_header('Content-Length', "%s" % content_length)
         handler.send_header('Content-Type', content_type)
         handler.send_header('Accept-Ranges', 'bytes')
+        if immutable:
+            handler.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+            handler.send_header('Age', '0')
         handler.end_headers()
         if is_head:
             return
@@ -226,7 +229,7 @@ def send_file(handler, fpath, is_head=False, data=None, content_type=None):
         file_size = os.path.getsize(fpath)
         fd = open(fpath, 'rb')
         if range_header is None:
-            send_whole_file(handler, fd, content_type, file_size, data)
+            send_whole_file(handler, fd, content_type, file_size, data=data, immutable=immutable)
         else:
             send_partial_file(handler, fd, content_type, file_size, range_header)
         fd.close()
@@ -654,7 +657,7 @@ def image_endpoint(handler):
     proxied_image_url = "/tmdb-images/%s/%s" % (size_class, tmdb_image_fname)
     image_cache_fpath = make_file_path("~/.mserve/tmdb_cache/%s/%s" % (size_class, tmdb_image_fname))
     data = get_file_from_url(tmdb_image_url, image_cache_fpath)
-    send_file(handler, image_cache_fpath, data=data)
+    send_file(handler, image_cache_fpath, data=data, immutable=True)
 
 add_regex_route(
     'GET',
