@@ -363,7 +363,7 @@ def slugify(name):
             slug += ch  # allow these chars
         else:
             slug += '-'  # turn anything else into a dash
-    re.sub('--+', '-', slug)
+    slug = re.sub('--+', '-', slug)
     return slug
 
 # Rename a file (or dir) using a slugified name.
@@ -433,17 +433,32 @@ def load_json(fpath):
 
 # Parse the season and episode number from a filename.
 def parse_filename(fname):
-    episode_pattern = re.compile(".*?[sS](\d)+[eE](\d+)")
+    episode_pattern = re.compile(".*?[sS](\d+)[eE](\d+)")
     m = episode_pattern.match(fname)
     if m and len(m.groups()) == 2:
         season_num = int(m.group(1))
         episode_num = int(m.group(2))
         return [season_num, episode_num, fname]
     else:
-        return [None, None, fname]
+        episode_pattern = re.compile(".*?(\d+)x(\d+)")
+        m = episode_pattern.match(fname)
+        if m and len(m.groups()) == 2:
+            season_num = int(m.group(1))
+            episode_num = int(m.group(2))
+            return [season_num, episode_num, fname]
+        else:
+            episode_pattern = re.compile("^(\d+)")
+            m = episode_pattern.match(fname)
+            if m and len(m.groups()) == 1:
+                season_num = 1
+                episode_num = int(m.group(1))
+                return [season_num, episode_num, fname]
+            else:
+                return [None, None, fname]
 
 # Scan a show for seasons, episodes and filenames.
-# E.g. [[1,1,'tng-s1e1.mp4'], [1,2,'tng-s1e2.mp4']]
+# Returns an array of "season groups".
+# E.g. [(1,[(1,'tng-s1e1.mp4'),(2,'tng-s1e2.mp4')]), (2,[(1,'tng-s2e1.mp4'),(2,'tng-s2e2.mp4')])]
 def scan_for_videos(url_path):
     video_triples = []
     json_fpath = make_file_path(g_media_dir, url_path, "mserve.json")
@@ -464,14 +479,27 @@ def scan_for_videos(url_path):
             episode_triples.append(triple)
     episode_triples.sort()
     video_triples.sort()
-    return episode_triples + video_triples
+    season_groups = []
+    current_season = None
+    season_group = []
+    for t in episode_triples + video_triples:
+        s, e, f = t
+        if s != current_season:
+            if len(season_group):
+                season_groups.append((current_season,season_group))
+                season_group = []
+            current_season = s
+        season_group.append((e,f))
+    if len(season_group):
+        season_groups.append((current_season,season_group))
+    return season_groups
 
 #
 # themoviedb.org layer.
 #
 
 # Return the JSON for the given URL, using / populating cache if available.
-# Returns None in case of failure.
+# Returns empty dictionary in case of failure.
 def get_json_from_url(url, cache_fpath, headers):
     dpath = os.path.dirname(cache_fpath)
     os.makedirs(dpath, exist_ok=True)
@@ -491,16 +519,31 @@ def get_json_from_url(url, cache_fpath, headers):
         return json.loads(data.decode('utf-8'))
     except Exception as e:
         sys.stderr.write("get_json_from_url: exception: %s\n" % e)
-        return None
+        return {}
 
 # Return the JSON for the given show, using cache if available.
 # tmdb_id should be e.g. "tv/1087" or "movie/199".
+# Returns empty dictionary in case of failure.
 def get_tmdb_show_details(tmdb_id):
     tmdb_type = tmdb_id.split("/")[0]
     tmdb_num = tmdb_id.split("/")[1]
     dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
     fpath = make_file_path(dpath, "%s.json" % tmdb_num)
     url = "https://api.themoviedb.org/3/%s" % tmdb_id
+    headers = [
+        ['Authorization', 'Bearer %s' % g_tmdb_token]
+    ]
+    return get_json_from_url(url, fpath, headers)
+
+# Return the JSON for the given season, using cache if available.
+# tmdb_id should be e.g. "tv/1087".
+# Returns empty dictionary in case of failure.
+def get_tmdb_season_details(tmdb_id, season_num):
+    tmdb_type = tmdb_id.split("/")[0]
+    tmdb_num = tmdb_id.split("/")[1]
+    dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
+    fpath = make_file_path(dpath, "%s.season%s.json" % (tmdb_num, season_num))
+    url = "https://api.themoviedb.org/3/%s/season/%s" % (tmdb_id, season_num)
     headers = [
         ['Authorization', 'Bearer %s' % g_tmdb_token]
     ]
@@ -599,7 +642,7 @@ def directory_endpoint(handler):
         tmdb_id = metadata.get('tmdb_id')
         if tmdb_id:
             tmdb_json = get_tmdb_show_details(tmdb_id)
-        body = render_show(handler, url_path, metadata, tmdb_json)
+        body = render_show(handler, url_path, metadata, tmdb_id, tmdb_json)
         send_html(handler, 200, body)
     else:
         send_500("Bad mserve.json")
@@ -630,7 +673,7 @@ def render_directory(handler, url_path):
     html += "</html>\n"
     return html
 
-def render_show(handler, url_path, metadata, tmdb_json):
+def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
     def render_links(fname):
         file_url = make_url_path(url_path, fname)
         player_url = make_url_path(url_path, fname, 'player')
@@ -666,43 +709,55 @@ def render_show(handler, url_path, metadata, tmdb_json):
     if 'title' in tmdb_json or 'name' in tmdb_json:
         title = tmdb_json.get('title', tmdb_json.get('name'))
         release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
-        html += '<h2>%s (%s)</h2>\n' % (title, release_date.split('-')[0])
-        html += '<p><i>%s</i></p>\n' % tmdb_json['tagline']
+        html += '<h1>%s (%s)</h1>\n' % (title, release_date.split('-')[0])
+        tagline = tmdb_json.get('tagline','')
+        if len(tagline):
+            html += '<p><i>%s</i></p>\n' % tagline
         poster_url = "https://image.tmdb.org/t/p/w500%s" % tmdb_json['poster_path']
         html += '<img src="%s" style="max-width:100%%">\n' % poster_url
         html += '<p>%s</p>\n' % tmdb_json['overview']
     elif 'title' in metadata:
-        html += '<h2>%s</h2>\n' % metadata['title']
-    video_triples = scan_for_videos(url_path)
-    if len(video_triples):
-        html += "<ul>\n"
-        current_season = None
-        for video_triple in video_triples:
-            season_num, episode_num, fname = video_triple
-            fpath = make_file_path(g_media_dir, url_path, fname)
-            file_size = os.path.getsize(fpath)
-            if season_num != current_season:
-                html += "</ul>\n"
-                if season_num is None:
-                    html += '<h3>Other videos</h3>\n'
+        html += '<h1>%s</h1>\n' % metadata['title']
+    season_groups = scan_for_videos(url_path)
+    for season_group in season_groups:
+        # E.g. (1,[(1,'tng-s1e1.mp4'),(2,'tng-s1e2.mp4')])
+        season_num, episode_pairs = season_group
+        season_json = get_tmdb_season_details(tmdb_id, season_num)
+        episodes_jsons = season_json.get('episodes', [])
+        if season_num:
+            html += '<h2>Season %s (%s)</h2>\n' % (season_num, season_json.get('air_date', '').split('-')[0])
+            for episode_num, fname in episode_pairs:
+                fpath = make_file_path(g_media_dir, url_path, fname)
+                file_size = os.path.getsize(fpath)
+                episode_index = episode_num - 1
+                if episode_index < len(episodes_jsons) and episodes_jsons[episode_index].get('episode_number',-1) == episode_num:
+                    episode_json = episodes_jsons[episode_index]
+                    html += "<h3>Episode %s: %s</h3>\n" % (episode_num, episode_json.get('name'))
+                    html += '<img src="https://image.tmdb.org/t/p/w342%s" style="max-width:100%%">\n' % episode_json.get('still_path')
+                    html += '<ul>\n'
+                    html += '<li>%s</li>\n' % episode_json.get('overview', '')
+                    html += '<li>%s (%s)</li>\n' % (fname, format_filesize(file_size))
+                    html += '<li>%s</li>\n' % render_links(fname)
+                    html += '</ul>\n'
                 else:
-                    html += '<h3>Season %s</h3>\n' % season_num
-                html += "<ul>\n"
-            current_season = season_num
-            html += '<li>'
-            if episode_num is not None:
-                html += "Episode %s\n" % episode_num
-                html += '<ul>\n'
-                html += '<li>%s (%s)</li>\n' % (fname, format_filesize(file_size))
-                html += '<li>%s</li>\n' % render_links(fname)
-                html += '</ul>\n'
-            else:
+                    html += "<h3>Episode %s</h3>\n" % episode_num
+                    html += '<ul>\n'
+                    html += '<li>%s (%s)</li>\n' % (fname, format_filesize(file_size))
+                    html += '<li>%s</li>\n' % render_links(fname)
+                    html += '</ul>\n'
+        else:
+            html += '<h2>Other videos</h2>\n'
+            html += '<ul>\n'
+            for _, fname in episode_pairs:
+                fpath = make_file_path(g_media_dir, url_path, fname)
+                file_size = os.path.getsize(fpath)
+                html += '<li>'
                 html += '%s (%s)\n' % (fname, format_filesize(file_size))
                 html += '<ul>\n'
                 html += '<li>%s</li>\n' % render_links(fname)
                 html += '</ul>\n'
-            html += '</li>'
-        html += "</ul>\n"
+                html += '</li>'
+            html += '</ul>\n'
     html += render_footer()
     html += "</body>\n"
     html += "</html>\n"
