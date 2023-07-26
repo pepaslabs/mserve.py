@@ -350,7 +350,7 @@ def is_video(fpath):
         '.ogg', '.ogm', '.ogv',
         '.webm',
         '.mkv',
-        '.mov',
+        '.mov', '.qt'
     ]
     return os.path.splitext(fpath)[-1].lower() in exts
 
@@ -802,8 +802,9 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
         tagline = tmdb_json.get('tagline','')
         if len(tagline):
             html += '<p><i>%s</i></p>\n' % tagline
-        proxied_image_url = "/tmdb-images/w500%s" % tmdb_json['poster_path']
-        html += '<img src="%s" style="max-width:100%%">\n' % proxied_image_url
+        if 'poster_path' in tmdb_json:
+            proxied_image_url = "/tmdb-images/w500%s" % tmdb_json.get('poster_path')
+            html += '<img src="%s" style="max-width:100%%">\n' % proxied_image_url
         html += '<p>%s</p>\n' % tmdb_json['overview']
     elif 'title' in metadata:
         html += '<h1>%s</h1>\n' % metadata['title']
@@ -826,8 +827,10 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
                 if episode_index < len(episodes_jsons) and episodes_jsons[episode_index].get('episode_number',-1) == episode_num:
                     episode_json = episodes_jsons[episode_index]
                     html += "<h3>Episode %s: %s</h3>\n" % (episode_num, episode_json.get('name'))
-                    proxied_image_url = "/tmdb-images/w342%s" % episode_json.get('still_path')
-                    html += '<img src="%s" style="max-width:100%%">\n' % proxied_image_url
+                    still_path = episode_json.get('still_path')
+                    if still_path:
+                        proxied_image_url = "/tmdb-images/w342%s" % still_path
+                        html += '<img src="%s" style="max-width:100%%">\n' % proxied_image_url
                     html += '<ul>\n'
                     html += '<li>%s</li>\n' % episode_json.get('overview', '')
                     html += '<li>%s (%s)</li>\n' % (fname, format_filesize(file_size))
