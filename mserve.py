@@ -545,6 +545,8 @@ def get_json_from_url(url, cache_fpath, headers):
 # tmdb_id should be e.g. "tv/1087" or "movie/199".
 # Returns empty dictionary in case of failure.
 def get_tmdb_show_details(tmdb_id):
+    if tmdb_id is None:
+        return {}
     tmdb_type = tmdb_id.split("/")[0]
     tmdb_num = tmdb_id.split("/")[1]
     dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
@@ -559,7 +561,7 @@ def get_tmdb_show_details(tmdb_id):
 # tmdb_id should be e.g. "tv/1087".
 # Returns empty dictionary in case of failure.
 def get_tmdb_season_details(tmdb_id, season_num):
-    if season_num is None:
+    if tmdb_id is None or season_num is None:
         return {}
     tmdb_type = tmdb_id.split("/")[0]
     tmdb_num = tmdb_id.split("/")[1]
@@ -728,12 +730,32 @@ def render_directory(handler, url_path):
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     triples = scan_dir(url_path)
     if len(triples):
-        html += "<ul>\n"
         for triple in triples:
             title, slug, metadata = triple
             url = make_url_path(url_path, slug)
-            html += '<li><a href="%s">%s</a></li>\n' % (url, title)
-        html += "</ul>\n"
+            tmdb_json = {}
+            tmdb_id = metadata.get('tmdb_id')
+            tmdb_json = get_tmdb_show_details(tmdb_id)
+            if 'poster_path' in tmdb_json:
+                proxied_image_url = "/tmdb-images/w92%s" % tmdb_json.get('poster_path')
+            else:
+                proxied_image_url = None
+            if 'title' in tmdb_json or 'name' in tmdb_json:
+                title_text = tmdb_json.get('title', tmdb_json.get('name'))
+                release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
+                if len(release_date):
+                    title_text += ' (%s)' % release_date.split('-')[0]
+            elif 'title' in metadata:
+                title_text = metadata['title']
+            else:
+                title_text = url.split('/')[-1]
+            if proxied_image_url:
+                html += "<div>\n"
+                html += '<a href="%s"><img src="%s" style="max-width:100%%"></a>\n' % (url, proxied_image_url)
+                html += '<a href="%s">%s</a>\n' % (url, title_text)
+                html += "</div>\n"
+            else:
+                html += '<ul><li><a href="%s">%s</a></li></ul>\n' % (url, title_text)
     html += "</body>\n"
     html += "</html>\n"
     return html
@@ -772,9 +794,11 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
     html += "<body>\n"
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     if 'title' in tmdb_json or 'name' in tmdb_json:
-        title = tmdb_json.get('title', tmdb_json.get('name'))
+        title_line = tmdb_json.get('title', tmdb_json.get('name'))
         release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
-        html += '<h1>%s (%s)</h1>\n' % (title, release_date.split('-')[0])
+        if len(release_date):
+            title_line += ' (%s)' % release_date.split('-')[0]
+        html += '<h1>%s</h1>\n' % title_line
         tagline = tmdb_json.get('tagline','')
         if len(tagline):
             html += '<p><i>%s</i></p>\n' % tagline
@@ -784,11 +808,13 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
     elif 'title' in metadata:
         html += '<h1>%s</h1>\n' % metadata['title']
     season_groups = scan_for_videos(url_path)
+    has_seasons = False
     for season_group in season_groups:
         season_num, episode_pairs = season_group
         season_json = get_tmdb_season_details(tmdb_id, season_num)
         episodes_jsons = season_json.get('episodes', [])
         if season_num:
+            has_seasons = True
             html += '<h2>Season %s' % season_num
             if 'air_date' in season_json:
                 html += ' (%s)' % season_json.get('air_date', '').split('-')[0]
@@ -814,7 +840,8 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
                     html += '<li>%s</li>\n' % render_links(fname)
                     html += '</ul>\n'
         else:
-            html += '<h2>Other videos</h2>\n'
+            if has_seasons:
+                html += '<h2>Other videos</h2>\n'
             html += '<ul>\n'
             for _, fname in episode_pairs:
                 fpath = make_file_path(g_media_dir, url_path, fname)
