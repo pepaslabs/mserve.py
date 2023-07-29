@@ -807,7 +807,7 @@ def render_directory(handler, url_path):
     def render_letter_links(titles):
         if len(titles) < 10:
             return ""
-        letters = filter(lambda x: x.isalpha(), sorted(list(set([t.upper()[0] for t in titles]))))
+        letters = filter(lambda x: x >= 'A' and x <= 'Z', sorted(list(set([t.upper()[0] for t in titles]))))
         links = ['<a href="#section-%s">%s</a>' % (l,l) for l in letters]
         html = "<p>[ %s ]</p>\n" % ' | '.join(links)
         return html
@@ -819,7 +819,7 @@ def render_directory(handler, url_path):
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     triples = scan_dir(url_path)
     if len(triples):
-        quints = []
+        tuples = []
         for triple in triples:
             title, slug, metadata = triple
             show_url = make_url_path(url_path, slug)
@@ -834,17 +834,19 @@ def render_directory(handler, url_path):
             elif 'title' in metadata:
                 title_text = metadata['title']
             else:
-                title_text = url.split('/')[-1]
+                title_text = show_url.split('/')[-1]
             proxied_image_url = None
+            proxied_image_url_2x = None
             if 'poster_path' in tmdb_json:
                 proxied_image_url = "/tmdb-images/w92%s" % tmdb_json.get('poster_path')
-            quint = (title_text, slug, metadata, show_url, proxied_image_url)
-            quints.append(quint)
-        titles = list(map(lambda x: x[0], quints))
+                proxied_image_url_2x = "/tmdb-images/w185%s" % tmdb_json.get('poster_path')
+            tuple = (title_text, slug, metadata, show_url, proxied_image_url, proxied_image_url_2x)
+            tuples.append(tuple)
+        titles = list(map(lambda x: x[0], tuples))
         html += render_letter_links(titles)
         current_letter = None
-        for quint in quints:
-            (title_text, slug, metadata, show_url, proxied_image_url) = quint
+        for tuple in tuples:
+            (title_text, slug, metadata, show_url, proxied_image_url, proxied_image_url_2x) = tuple
             letter = title_text[0].upper()
             anchor_id = None
             if letter != current_letter:
@@ -854,7 +856,7 @@ def render_directory(handler, url_path):
                     html += '<div id="%s">\n' % anchor_id
                 else:
                     html += '<div>\n'
-                html += '<a href="%s"><img src="%s" style="max-width:100%%"></a>\n' % (show_url, proxied_image_url)
+                html += '<a href="%s"><img src="%s" srcset="%s 2x" style="max-width:100%%"></a>\n' % (show_url, proxied_image_url, proxied_image_url_2x)
                 html += '<a href="%s">%s</a>\n' % (show_url, title_text)
                 html += "</div>\n"
             else:
@@ -909,7 +911,8 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
                 html += '<p><i>%s</i></p>\n' % tagline
             if 'poster_path' in tmdb_json:
                 proxied_image_url = "/tmdb-images/w500%s" % tmdb_json.get('poster_path')
-                html += '<img src="%s" style="max-width:100%%">\n' % proxied_image_url
+                proxied_image_url_2x = "/tmdb-images/w780%s" % tmdb_json.get('poster_path')
+                html += '<img src="%s" srcset="%s 2x" style="max-width:100%%">\n' % (proxied_image_url, proxied_image_url_2x)
             html += '<p>%s</p>\n' % tmdb_json['overview']
         elif 'title' in metadata:
             html += '<h1>%s</h1>\n' % metadata['title']
@@ -939,7 +942,8 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
                 still_path = episode_json.get('still_path')
                 if still_path:
                     proxied_image_url = "/tmdb-images/w342%s" % still_path
-                    html += '<img src="%s" style="max-width:100%%">\n' % proxied_image_url
+                    proxied_image_url_2x = "/tmdb-images/w780%s" % still_path
+                    html += '<img src="%s" srcset="%s 2x" style="max-width:100%%">\n' % (proxied_image_url, proxied_image_url_2x)
                 html += '<p>%s</p>\n' % episode_json.get('overview', '')
             else:
                 html += "<h3>Episode %s</h3>\n" % episode_num
