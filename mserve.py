@@ -804,6 +804,13 @@ add_regex_route(
 )
 
 def render_directory(handler, url_path):
+    def render_letter_links(titles):
+        if len(titles) < 10:
+            return ""
+        letters = filter(lambda x: x.isalpha(), sorted(list(set([t.upper()[0] for t in titles]))))
+        links = ['<a href="#section-%s">%s</a>' % (l,l) for l in letters]
+        html = "<p>[ %s ]</p>\n" % ' | '.join(links)
+        return html
     html = "<!DOCTYPE html>\n<html>\n"
     html += '<head>\n<meta charset="UTF-8">\n'
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
@@ -812,16 +819,13 @@ def render_directory(handler, url_path):
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     triples = scan_dir(url_path)
     if len(triples):
+        quints = []
         for triple in triples:
             title, slug, metadata = triple
-            url = make_url_path(url_path, slug)
+            show_url = make_url_path(url_path, slug)
             tmdb_json = {}
             tmdb_id = metadata.get('tmdb_id')
             tmdb_json = get_tmdb_show_details(tmdb_id)
-            if 'poster_path' in tmdb_json:
-                proxied_image_url = "/tmdb-images/w92%s" % tmdb_json.get('poster_path')
-            else:
-                proxied_image_url = None
             if 'title' in tmdb_json or 'name' in tmdb_json:
                 title_text = tmdb_json.get('title', tmdb_json.get('name'))
                 release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
@@ -831,13 +835,33 @@ def render_directory(handler, url_path):
                 title_text = metadata['title']
             else:
                 title_text = url.split('/')[-1]
+            proxied_image_url = None
+            if 'poster_path' in tmdb_json:
+                proxied_image_url = "/tmdb-images/w92%s" % tmdb_json.get('poster_path')
+            quint = (title_text, slug, metadata, show_url, proxied_image_url)
+            quints.append(quint)
+        titles = list(map(lambda x: x[0], quints))
+        html += render_letter_links(titles)
+        current_letter = None
+        for quint in quints:
+            (title_text, slug, metadata, show_url, proxied_image_url) = quint
+            letter = title_text[0].upper()
+            anchor_id = None
+            if letter != current_letter:
+                anchor_id = "section-%s" % letter
             if proxied_image_url:
-                html += "<div>\n"
-                html += '<a href="%s"><img src="%s" style="max-width:100%%"></a>\n' % (url, proxied_image_url)
-                html += '<a href="%s">%s</a>\n' % (url, title_text)
+                if anchor_id:
+                    html += '<div id="%s">\n' % anchor_id
+                else:
+                    html += '<div>\n'
+                html += '<a href="%s"><img src="%s" style="max-width:100%%"></a>\n' % (show_url, proxied_image_url)
+                html += '<a href="%s">%s</a>\n' % (show_url, title_text)
                 html += "</div>\n"
             else:
-                html += '<ul><li><a href="%s">%s</a></li></ul>\n' % (url, title_text)
+                if anchor_id:
+                    html += '<ul id="%s"><li><a href="%s">%s</a></li></ul>\n' % (anchor_id, show_url, title_text)
+                else:
+                    html += '<ul><li><a href="%s">%s</a></li></ul>\n' % (show_url, title_text)
     html += "</body>\n"
     html += "</html>\n"
     return html
