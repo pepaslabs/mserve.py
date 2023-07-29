@@ -325,7 +325,9 @@ def add_regex_route(http_method, label, regex, fn):
 
 # The core of the webapp.
 def handle_request(handler):
+    global g_tmdb_api_request_counter
     then = datetime.datetime.now()
+    g_tmdb_api_request_counter = 0
     fn = route(handler)
     if fn is None:
         send_404(handler)
@@ -449,6 +451,15 @@ if 'MSERVE_MEDIA_DIR' in os.environ:
 g_tmdb_token = None
 if 'TMDB_TOKEN' in os.environ:
     g_tmdb_token = os.environ['TMDB_TOKEN']
+
+#
+# themoviedb.org global state
+#
+
+# Limit the number of API requests per page load.
+# API results are cached, so refreshing the page will load the next API requests.
+g_tmdb_api_request_limit = 10
+g_tmdb_api_request_counter = 0
 
 #
 # mserve media storage layer
@@ -586,12 +597,17 @@ def scan_for_videos(url_path):
 
 # Return the JSON for the given URL, using / populating cache if available.
 # Returns empty dictionary in case of failure.
-def get_json_from_url(url, cache_fpath, headers):
+def get_json_from_url(url, cache_fpath, headers, api=None):
     dpath = os.path.dirname(cache_fpath)
     os.makedirs(dpath, exist_ok=True)
     cached_json = load_json(cache_fpath)
     if cached_json:
         return cached_json
+    if api == "tmdb":
+        global g_tmdb_api_request_counter
+        if g_tmdb_api_request_counter > g_tmdb_api_request_limit:
+            return {}
+        g_tmdb_api_request_counter += 1
     try:
         sys.stderr.write("Fetching %s\n" % url)
         req = urllib.request.Request(url)
@@ -621,7 +637,7 @@ def get_tmdb_show_details(tmdb_id):
     headers = [
         ['Authorization', 'Bearer %s' % g_tmdb_token]
     ]
-    return get_json_from_url(url, fpath, headers)
+    return get_json_from_url(url, fpath, headers, api="tmdb")
 
 # Return the JSON for the given season, using cache if available.
 # tmdb_id should be e.g. "tv/1087".
@@ -637,7 +653,7 @@ def get_tmdb_season_details(tmdb_id, season_num):
     headers = [
         ['Authorization', 'Bearer %s' % g_tmdb_token]
     ]
-    return get_json_from_url(url, fpath, headers)
+    return get_json_from_url(url, fpath, headers, api="tmdb")
 
 # Return the data for the given URL, using / populating cache if available.
 # Returns None in case of failure.
