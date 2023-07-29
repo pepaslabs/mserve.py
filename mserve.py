@@ -22,6 +22,7 @@ import mimetypes
 import urllib.request
 import socket
 import subprocess
+import functools
 
 #
 # Python utils
@@ -377,10 +378,17 @@ def make_file_path(*args):
 # Guess the content type.
 def get_content_type(fpath):
     ext = os.path.splitext(fpath)[1].lower()
+    # hard-coded shorcuts for a few common filetypes:
     if ext == '.jpg' or ext == '.jpeg':
         return 'image/jpeg'
     elif ext == '.png':
         return 'image/png'
+    elif ext == '.avi':
+        return 'video/x-msvideo'
+    elif ext == '.mp4':
+        return 'video/mp4'
+    elif ext == '.mkv':
+        return 'video/x-matroska'
     else:
         return mimetypes.guess_type(fpath)[0] or 'application/octet-stream'
 
@@ -495,28 +503,49 @@ def load_file(fpath):
 
 # Parse the season and episode number from a filename.
 def parse_filename(fname):
+    # the standard s1e1 / S1E1 format.
     episode_pattern = re.compile(".*?[sS](\d+)[eE](\d+)")
     m = episode_pattern.match(fname)
     if m and len(m.groups()) == 2:
         season_num = int(m.group(1))
         episode_num = int(m.group(2))
+        return (season_num, episode_num, fname)
+    
+    # "extras" are often of the form s1x1.
+    # we'll return these as (:season, None, :fname).
+    episode_pattern = re.compile(".*?[sS](\d+)[xX](\d+)")
+    m = episode_pattern.match(fname)
+    if m and len(m.groups()) == 2:
+        season_num = int(m.group(1))
+        return (season_num, None, fname)
+
+    # the 1x1 format.
+    episode_pattern = re.compile(".*?(\d+)[xX](\d+)")
+    m = episode_pattern.match(fname)
+    if m and len(m.groups()) == 2:
+        season_num = int(m.group(1))
+        episode_num = int(m.group(2))
+        return (season_num, episode_num, fname)
+
+    # the "1. Foo" format.
+    episode_pattern = re.compile("^(\d+)\.")
+    m = episode_pattern.match(fname)
+    if m and len(m.groups()) == 1:
+        season_num = 1
+        episode_num = int(m.group(1))
         return [season_num, episode_num, fname]
-    else:
-        episode_pattern = re.compile(".*?(\d+)x(\d+)")
-        m = episode_pattern.match(fname)
-        if m and len(m.groups()) == 2:
-            season_num = int(m.group(1))
-            episode_num = int(m.group(2))
-            return [season_num, episode_num, fname]
-        else:
-            episode_pattern = re.compile("^(\d+)")
-            m = episode_pattern.match(fname)
-            if m and len(m.groups()) == 1:
-                season_num = 1
-                episode_num = int(m.group(1))
-                return [season_num, episode_num, fname]
-            else:
-                return [None, None, fname]
+
+    # otherwise, this is a misc. video.
+    return [None, None, fname]
+
+# Custom key function to sort video triples.
+# Sort by season, then episode, then fname.
+# 'None' always comes after a numeric value.
+def sort_key_video_triple(k):
+    (season, episode, fname) = k
+    if season is None: season = 9999
+    if episode is None: episode = 9999
+    return (season, episode, fname)
 
 # Scan a show for seasons, episodes and filenames.
 # Returns an array of "season groups".
@@ -527,7 +556,6 @@ def scan_for_videos(url_path):
     if not os.path.isfile(json_fpath):
         return []
     dpath = make_file_path(g_media_dir, url_path)
-    episode_triples = []
     video_triple = []
     for f in os.listdir(dpath):
         if not os.path.isfile(make_file_path(g_media_dir, url_path, f)):
@@ -535,16 +563,12 @@ def scan_for_videos(url_path):
         if not is_video(f):
             continue
         triple = parse_filename(f)
-        if triple[0] is None:
-            video_triples.append(triple)
-        else:
-            episode_triples.append(triple)
-    episode_triples.sort()
-    video_triples.sort()
+        video_triples.append(triple)
+    video_triples.sort(key=sort_key_video_triple)
     season_groups = []
     current_season = None
     season_group = []
-    for t in episode_triples + video_triples:
+    for t in video_triples:
         s, e, f = t
         if s != current_season:
             if len(season_group):
@@ -864,29 +888,37 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
         return html
 
     def render_season(season_group):
-        def render_episode(episodes_jsons, episode_num, fname):
+        def render_episode(episodes_jsons, episode_num, fnames):
             html = ""
-            fpath = make_file_path(g_media_dir, url_path, fname)
-            file_size = os.path.getsize(fpath)
             episode_index = episode_num - 1
+            episode_json = None
             if episode_index < len(episodes_jsons) and episodes_jsons[episode_index].get('episode_number',-1) == episode_num:
                 episode_json = episodes_jsons[episode_index]
+            if episode_json:
                 html += "<h3>Episode %s: %s</h3>\n" % (episode_num, episode_json.get('name'))
                 still_path = episode_json.get('still_path')
                 if still_path:
                     proxied_image_url = "/tmdb-images/w342%s" % still_path
                     html += '<img src="%s" style="max-width:100%%">\n' % proxied_image_url
-                html += '<ul>\n'
-                html += '<li>%s</li>\n' % episode_json.get('overview', '')
-                html += '<li>%s (%s)</li>\n' % (fname, format_filesize(file_size))
-                html += '<li>%s</li>\n' % render_links(fname)
-                html += '</ul>\n'
+                html += '<p>%s</p>\n' % episode_json.get('overview', '')
             else:
                 html += "<h3>Episode %s</h3>\n" % episode_num
-                html += '<ul>\n'
+            html += '<ul>\n'
+            for fname in fnames:
+                fpath = make_file_path(g_media_dir, url_path, fname)
+                file_size = os.path.getsize(fpath)
                 html += '<li>%s (%s)</li>\n' % (fname, format_filesize(file_size))
-                html += '<li>%s</li>\n' % render_links(fname)
-                html += '</ul>\n'
+                html += '<ul><li>%s</li></ul>\n' % render_links(fname)
+            html += '</ul>\n'
+            return html
+
+        def render_misc_video(fname):
+            fpath = make_file_path(g_media_dir, url_path, fname)
+            file_size = os.path.getsize(fpath)
+            html = '<li>'
+            html += '%s (%s)\n' % (fname, format_filesize(file_size))
+            html += '<ul><li>%s</li></ul>\n' % render_links(fname)
+            html += '</li>'
             return html
 
         html = ""
@@ -900,21 +932,24 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
                 heading += ' (%s)' % air_date.split('-')[0]
             heading += '</h2>\n'
             html += heading
-            for episode_num, fname in episode_pairs:
-                html += render_episode(episodes_jsons, episode_num, fname)
+            episode_nums = sorted(list(set(filter(lambda x: x != None, map(lambda x: x[0], episode_pairs)))))
+            for episode_num in episode_nums:
+                filtered_pairs = list(filter(lambda x: x[0] == episode_num, episode_pairs))
+                fnames = list(map(lambda x: x[1], filtered_pairs))
+                html += render_episode(episodes_jsons, episode_num, fnames)
+            misc_episode_pairs = list(filter(lambda x: x[0] is None, episode_pairs))
+            if len(misc_episode_pairs):
+                html += '<h2>Season %s Misc.</h2>\n' % (season_num)
+                html += '<ul>\n'
+                for _, fname in misc_episode_pairs:
+                    html += render_misc_video(fname)
+                html += '</ul>\n'
         else:
             if has_seasons:
                 html += '<h2 id="misc">Misc.</h2>\n'
             html += '<ul>\n'
             for _, fname in episode_pairs:
-                fpath = make_file_path(g_media_dir, url_path, fname)
-                file_size = os.path.getsize(fpath)
-                html += '<li>'
-                html += '%s (%s)\n' % (fname, format_filesize(file_size))
-                html += '<ul>\n'
-                html += '<li>%s</li>\n' % render_links(fname)
-                html += '</ul>\n'
-                html += '</li>'
+                html += render_misc_video(fname)
             html += '</ul>\n'
         return html
 
