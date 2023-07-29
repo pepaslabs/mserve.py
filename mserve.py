@@ -20,6 +20,8 @@ import json
 import http.server
 import mimetypes
 import urllib.request
+import socket
+import subprocess
 
 #
 # Python utils
@@ -32,6 +34,34 @@ def list_get(l, index, default=None):
         return l[index]
     except IndexError:
         return default
+
+# Guess the outwardly-routable IP address.
+def outward_ip_address():
+    # Some boxes resolve their hostname to 127.0.0.1 (or 127.0.1.1), which makes gethostbyname() useless.
+    # So first we try to use cmdline utils to get the routeable IP.
+    if sys.platform == 'linux':
+        try:
+            cmd = "ip route | grep '^default' | head -n1 | tr ' ' '\\n' | grep -A1 '^dev$' | tail -n1"
+            iface = subprocess.check_output(cmd, shell=True).decode().splitlines()[0]
+            cmd = "ip -f inet -json address show %s" % iface
+            jsn = subprocess.check_output(cmd, shell=True).decode()
+            ip = json.loads(jsn)[0]['addr_info'][0]['local']
+            return ip
+        except:
+            return socket.gethostbyname(socket.gethostname())
+    elif sys.platform == 'darwin':
+        try:
+            cmd = "netstat -rn -f inet | grep '^default' | head -n1"
+            iface = subprocess.check_output(cmd, shell=True).decode().splitlines()[0]
+            cmd = "ifconfig en0 | awk '{print $1 \" \" $2}' | grep '^inet ' | head -n1 | awk '{print $2}'"
+            ip = subprocess.check_output(cmd, shell=True).decode().splitlines()[0]
+            return ip
+        except:
+            return socket.gethostbyname(socket.gethostname())
+    else:
+        return socket.gethostbyname(socket.gethostname())
+
+g_ip_address = outward_ip_address()
 
 #
 # HTTP / HTML utils
@@ -776,9 +806,10 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
     def render_links(fname):
         file_url = make_url_path(url_path, fname)
         player_url = make_url_path(url_path, fname, 'player')
-        inet_url = "http://%s:%s%s" % (handler.server.server_name, handler.server.server_port, file_url)
+        port = handler.server.server_port
+        inet_url = "http://%s:%s%s" % (g_ip_address, port, file_url)
         vlc_callback_url = "vlc-x-callback://x-callback-url/stream?url=%s" % inet_url
-        vlc_file_url = "vlc-file://%s:%s%s" % (handler.server.server_name, handler.server.server_port, file_url)
+        vlc_file_url = "vlc-file://%s:%s%s" % (g_ip_address, port, file_url)
         links = []
         if is_html5_video(fname):
             link = '<a href="%s">player</a>' % player_url
@@ -919,5 +950,6 @@ if __name__ == "__main__":
         port = 8000
         address_pair = ('', 8000)
         server = http.server.ThreadingHTTPServer(address_pair, Handler)
+        sys.stderr.write("Routable IP address detected as %s\n" % g_ip_address)
         sys.stderr.write("Listening on port %s\n" % port)
         server.serve_forever()
