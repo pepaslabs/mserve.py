@@ -627,7 +627,7 @@ def get_json_from_url(url, cache_fpath, headers, api=None):
 # tmdb_id should be e.g. "tv/1087" or "movie/199".
 # Returns empty dictionary in case of failure.
 def get_tmdb_show_details(tmdb_id):
-    if tmdb_id is None:
+    if tmdb_id is None or len(tmdb_id) == 0:
         return {}
     tmdb_type = tmdb_id.split("/")[0]
     tmdb_num = tmdb_id.split("/")[1]
