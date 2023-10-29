@@ -25,6 +25,25 @@ import subprocess
 import functools
 
 #
+# mserve configuration via environment
+#
+
+# The directory in which to look for media files.
+g_media_dir = os.environ['HOME'] + '/Movies'
+if 'MSERVE_MEDIA_DIR' in os.environ:
+    g_media_dir = os.environ['MSERVE_MEDIA_DIR']
+
+# The token used to access the themoviedb.org API.
+g_tmdb_token = None
+if 'TMDB_TOKEN' in os.environ:
+    g_tmdb_token = os.environ['TMDB_TOKEN']
+
+# The API key needed for the moviesdatabase API.
+g_rapidapi_key = None
+if 'RAPIDAPI_KEY' in os.environ:
+    g_rapidapi_key = os.environ['RAPIDAPI_KEY']
+
+#
 # Python utils
 #
 
@@ -439,29 +458,6 @@ def slugify_file(fname):
         os.rename(fname, slug_fname)
 
 #
-# mserve configuration via environment
-#
-
-# The directory in which to look for media files.
-g_media_dir = os.environ['HOME'] + '/Movies'
-if 'MSERVE_MEDIA_DIR' in os.environ:
-    g_media_dir = os.environ['MSERVE_MEDIA_DIR']
-
-# The token used to access the themoviedb.org API.
-g_tmdb_token = None
-if 'TMDB_TOKEN' in os.environ:
-    g_tmdb_token = os.environ['TMDB_TOKEN']
-
-#
-# themoviedb.org global state
-#
-
-# Limit the number of API requests per page load.
-# API results are cached, so refreshing the page will load the next API requests.
-g_tmdb_api_request_limit = 10
-g_tmdb_api_request_counter = 0
-
-#
 # mserve media storage layer
 #
 
@@ -595,19 +591,27 @@ def scan_for_videos(url_path):
 # themoviedb.org layer.
 #
 
+# Limit the number of API requests per page load.
+# API results are cached, so refreshing the page will load the next API requests.
+g_tmdb_rate_limiter = {
+    "limit": 10,
+    "counter": 0
+}
+
 # Return the JSON for the given URL, using / populating cache if available.
 # Returns empty dictionary in case of failure.
-def get_json_from_url(url, cache_fpath, headers, api=None):
+def get_json_from_url(url, cache_fpath, headers, rate_limiter=None, cache_only=False):
     dpath = os.path.dirname(cache_fpath)
     os.makedirs(dpath, exist_ok=True)
     cached_json = load_json(cache_fpath)
     if cached_json:
         return cached_json
-    if api == "tmdb":
-        global g_tmdb_api_request_counter
-        if g_tmdb_api_request_counter > g_tmdb_api_request_limit:
+    if cache_only:
+        return {}
+    if rate_limiter:
+        if rate_limiter["counter"] > rate_limiter["limit"]:
             return {}
-        g_tmdb_api_request_counter += 1
+        rate_limiter["counter"] += 1
     try:
         sys.stderr.write("Fetching %s\n" % url)
         req = urllib.request.Request(url)
@@ -627,6 +631,8 @@ def get_json_from_url(url, cache_fpath, headers, api=None):
 # tmdb_id should be e.g. "tv/1087" or "movie/199".
 # Returns empty dictionary in case of failure.
 def get_tmdb_show_details(tmdb_id):
+    global g_tmdb_token
+    global g_tmdb_rate_limiter
     if tmdb_id is None or len(tmdb_id) == 0:
         return {}
     tmdb_type = tmdb_id.split("/")[0]
@@ -634,15 +640,20 @@ def get_tmdb_show_details(tmdb_id):
     dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
     fpath = make_file_path(dpath, "%s.json" % tmdb_num)
     url = "https://api.themoviedb.org/3/%s" % tmdb_id
-    headers = [
-        ['Authorization', 'Bearer %s' % g_tmdb_token]
-    ]
-    return get_json_from_url(url, fpath, headers, api="tmdb")
+    if g_tmdb_token:
+        headers = [
+            ['Authorization', 'Bearer %s' % g_tmdb_token]
+        ]
+        return get_json_from_url(url, fpath, headers, rate_limiter=g_tmdb_rate_limiter)
+    else:
+        return get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
 
 # Return the JSON for the given season, using cache if available.
 # tmdb_id should be e.g. "tv/1087".
 # Returns empty dictionary in case of failure.
 def get_tmdb_season_details(tmdb_id, season_num):
+    global g_tmdb_token
+    global g_tmdb_rate_limiter
     if tmdb_id is None or season_num is None:
         return {}
     tmdb_type = tmdb_id.split("/")[0]
@@ -650,10 +661,13 @@ def get_tmdb_season_details(tmdb_id, season_num):
     dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
     fpath = make_file_path(dpath, "%s.season%s.json" % (tmdb_num, season_num))
     url = "https://api.themoviedb.org/3/%s/season/%s" % (tmdb_id, season_num)
-    headers = [
-        ['Authorization', 'Bearer %s' % g_tmdb_token]
-    ]
-    return get_json_from_url(url, fpath, headers, api="tmdb")
+    if g_tmdb_token:
+        headers = [
+            ['Authorization', 'Bearer %s' % g_tmdb_token]
+        ]
+        return get_json_from_url(url, fpath, headers, rate_limiter=g_tmdb_rate_limiter)
+    else:
+        return get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
 
 # Return the data for the given URL, using / populating cache if available.
 # Returns None in case of failure.
@@ -676,6 +690,35 @@ def get_file_from_url(url, cache_fpath, headers=[]):
     except Exception as e:
         sys.stderr.write("❌ get_file_from_url: exception: %s\n" % e)
         return None
+
+#
+# moviesdatabase.p.rapidapi.com layer.
+#
+
+g_moviesdatabase_rate_limiter = {
+    "limit": 10,
+    "counter": 0
+}
+
+# Return the ratings JSON for the given show, using cache if available.
+# tmdb_id should be e.g. "tt0068646".
+# Returns empty dictionary in case of failure.
+def get_imdb_rating(imdb_id):
+    global g_rapidapi_key
+    global g_moviesdatabase_rate_limiter
+    if imdb_id is None:
+        return {}
+    dpath = make_file_path("~/.mserve/imdb_cache")
+    fpath = make_file_path(dpath, "%s.json" % imdb_id)
+    url = "https://moviesdatabase.p.rapidapi.com/titles/%s/ratings" % imdb_id
+    if g_rapidapi_key:
+        headers = [
+            ['X-RapidAPI-Host', 'moviesdatabase.p.rapidapi.com'],
+            ['X-RapidAPI-Key', g_rapidapi_key],
+        ]
+        return get_json_from_url(url, fpath, headers, rate_limiter=g_moviesdatabase_rate_limiter)
+    else:
+        return get_json_from_url(url, fpath, [], rate_limiter=g_moviesdatabase_rate_limiter, cache_only=True)
 
 #
 # /.../:file/player endpoint
@@ -787,11 +830,11 @@ def directory_endpoint(handler):
         body = render_directory(handler, url_path)
         send_html(handler, 200, body)
     elif metadata["type"] == "series" or metadata["type"] == "movie":
-        tmdb_json = {}
         tmdb_id = metadata.get('tmdb_id')
-        if tmdb_id:
-            tmdb_json = get_tmdb_show_details(tmdb_id)
-        body = render_show(handler, url_path, metadata, tmdb_id, tmdb_json)
+        tmdb_json = get_tmdb_show_details(tmdb_id)
+        imdb_id = metadata.get('imdb_id')
+        rating_json = get_imdb_rating(imdb_id)
+        body = render_show(handler, url_path, metadata, tmdb_id, tmdb_json, rating_json)
         send_html(handler, 200, body)
     else:
         send_500("Bad mserve.json")
@@ -807,7 +850,7 @@ def render_directory(handler, url_path):
     def render_letter_links(titles):
         if len(titles) < 10:
             return ""
-        letters = filter(lambda x: x >= 'A' and x <= 'Z', sorted(list(set([t.upper()[0] for t in titles]))))
+        letters = list(filter(lambda x: x >= 'A' and x <= 'Z', sorted(list(set([t.upper()[0] for t in titles])))))
         links = ['<a href="#section-%s">%s</a>' % (l,l) for l in letters]
         html = "<p>[ %s ]</p>\n" % ' | '.join(links)
         return html
@@ -823,9 +866,10 @@ def render_directory(handler, url_path):
         for triple in triples:
             title, slug, metadata = triple
             show_url = make_url_path(url_path, slug)
-            tmdb_json = {}
             tmdb_id = metadata.get('tmdb_id')
             tmdb_json = get_tmdb_show_details(tmdb_id)
+            imdb_id = metadata.get('imdb_id')
+            rating_json = get_imdb_rating(imdb_id)
             if 'title' in tmdb_json or 'name' in tmdb_json:
                 title_text = tmdb_json.get('title', tmdb_json.get('name'))
                 release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
@@ -840,24 +884,31 @@ def render_directory(handler, url_path):
             if 'poster_path' in tmdb_json:
                 proxied_image_url = "/tmdb-images/w92%s" % tmdb_json.get('poster_path')
                 proxied_image_url_2x = "/tmdb-images/w185%s" % tmdb_json.get('poster_path')
-            tuple = (title_text, slug, metadata, show_url, proxied_image_url, proxied_image_url_2x)
+            tuple = (title_text, slug, metadata, rating_json, show_url, proxied_image_url, proxied_image_url_2x)
             tuples.append(tuple)
         titles = list(map(lambda x: x[0], tuples))
         html += render_letter_links(titles)
         current_letter = None
         for tuple in tuples:
-            (title_text, slug, metadata, show_url, proxied_image_url, proxied_image_url_2x) = tuple
+            (title_text, slug, metadata, rating_json, show_url, proxied_image_url, proxied_image_url_2x) = tuple
             letter = title_text[0].upper()
             anchor_id = None
-            if letter != current_letter:
+            if letter >= 'A' and letter <= 'Z' and letter != current_letter:
+                current_letter = letter
                 anchor_id = "section-%s" % letter
             if proxied_image_url:
                 if anchor_id:
                     html += '<div id="%s">\n' % anchor_id
                 else:
                     html += '<div>\n'
+                html += '<div style="display: inline-block; vertical-align: middle;">\n'
                 html += '<a href="%s"><img src="%s" srcset="%s 2x" style="max-width:100%%"></a>\n' % (show_url, proxied_image_url, proxied_image_url_2x)
+                html += '</div>\n'
+                html += '<div style="display: inline-block; vertical-align: middlet;">\n'
                 html += '<a href="%s">%s</a>\n' % (show_url, title_text)
+                if 'results' in rating_json:
+                    html += '<ul><li>imdb: %s ⭐️</li></ul>\n' % rating_json['results']['averageRating']
+                html += '</div>\n'
                 html += "</div>\n"
             else:
                 if anchor_id:
@@ -868,7 +919,7 @@ def render_directory(handler, url_path):
     html += "</html>\n"
     return html
 
-def render_show(handler, url_path, metadata, tmdb_id, tmdb_json):
+def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, rating_json):
     def render_links(fname):
         file_url = make_url_path(url_path, fname)
         player_url = make_url_path(url_path, fname, 'player')
