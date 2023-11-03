@@ -345,8 +345,12 @@ def add_regex_route(http_method, label, regex, fn):
 # The core of the webapp.
 def handle_request(handler):
     global g_tmdb_api_request_counter
+    global g_tmdb_rate_limiter
+    global g_moviesdatabase_rate_limiter
     then = datetime.datetime.now()
     g_tmdb_api_request_counter = 0
+    g_tmdb_rate_limiter["counter"] = 0
+    g_moviesdatabase_rate_limiter["counter"] = 0
     fn = route(handler)
     if fn is None:
         send_404(handler)
@@ -706,7 +710,7 @@ g_moviesdatabase_rate_limiter = {
 def get_imdb_rating(imdb_id):
     global g_rapidapi_key
     global g_moviesdatabase_rate_limiter
-    if imdb_id is None:
+    if imdb_id is None or imdb_id == "":
         return {}
     dpath = make_file_path("~/.mserve/imdb_cache")
     fpath = make_file_path(dpath, "%s.json" % imdb_id)
@@ -833,6 +837,8 @@ def directory_endpoint(handler):
         tmdb_id = metadata.get('tmdb_id')
         tmdb_json = get_tmdb_show_details(tmdb_id)
         imdb_id = metadata.get('imdb_id')
+        if imdb_id is None:
+            imdb_id = tmdb_json.get('imdb_id')
         rating_json = get_imdb_rating(imdb_id)
         body = render_show(handler, url_path, metadata, tmdb_id, tmdb_json, rating_json)
         send_html(handler, 200, body)
@@ -869,6 +875,8 @@ def render_directory(handler, url_path):
             tmdb_id = metadata.get('tmdb_id')
             tmdb_json = get_tmdb_show_details(tmdb_id)
             imdb_id = metadata.get('imdb_id')
+            if imdb_id is None:
+                imdb_id = tmdb_json.get('imdb_id')
             rating_json = get_imdb_rating(imdb_id)
             if 'title' in tmdb_json or 'name' in tmdb_json:
                 title_text = tmdb_json.get('title', tmdb_json.get('name'))
