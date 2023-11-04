@@ -840,7 +840,7 @@ def directory_endpoint(handler):
         if imdb_id is None:
             imdb_id = tmdb_json.get('imdb_id')
         rating_json = get_imdb_rating(imdb_id)
-        body = render_show(handler, url_path, metadata, tmdb_id, tmdb_json, rating_json)
+        body = render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating_json)
         send_html(handler, 200, body)
     else:
         send_500("Bad mserve.json")
@@ -927,7 +927,7 @@ def render_directory(handler, url_path):
     html += "</html>\n"
     return html
 
-def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, rating_json):
+def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating_json):
     def render_links(fname):
         file_url = make_url_path(url_path, fname)
         player_url = make_url_path(url_path, fname, 'player')
@@ -974,7 +974,7 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, rating_json):
                 html += '<img src="%s" srcset="%s 2x" style="max-width:100%%">\n' % (proxied_image_url, proxied_image_url_2x)
             html += '<p>%s</p>\n' % tmdb_json['overview']
             if 'results' in rating_json:
-                html += '<p>imdb: %s ⭐️</p>\n' % rating_json['results']['averageRating']
+                html += '<p><a href="https://www.imdb.com/title/%s/">imdb</a>: %s ⭐️</p>\n' % (imdb_id, rating_json['results']['averageRating'])
         elif 'title' in metadata:
             html += '<h1>%s</h1>\n' % metadata['title']
         return html
