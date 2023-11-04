@@ -923,6 +923,21 @@ def render_directory(handler, url_path):
                     html += '<ul id="%s"><li><a href="%s">%s</a></li></ul>\n' % (anchor_id, show_url, title_text)
                 else:
                     html += '<ul><li><a href="%s">%s</a></li></ul>\n' % (show_url, title_text)
+    if url_path == "/":
+        html += "<br><br>\n"
+        html += "<h2>lists:</h2>\n"
+        html += "<ul>\n"
+        html += '<li><a href="https://www.afi.com/afi-lists/">AFI lists</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/chart/top/">IMDB Top 250 movies</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/search/title/?count=100&groups=top_1000&sort=user_rating">IMDB Top 1000 movies (by rating)</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/search/title/?groups=top_1000">IMDB Top 1000 movies (by popularity)</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/list/ls048276758/">rodneyjoneswriter\'s top 1000 films</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/list/ls090245754/">rodneyjoneswriter\'s top 2000 films</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/chart/toptv/">IMDB Top 250 TV shows</a></li>\n'
+        html += '<li><a href="https://editorial.rottentomatoes.com/all-time-lists/">Rotten Tomatoes lists</a></li>\n'
+        html += '<li><a href="https://www.metacritic.com/browse/movie/">Metacritic movies</a></li>\n'
+        html += '<li><a href="https://www.metacritic.com/browse/tv/">Metacritic TV shows</a></li>\n'
+        html += "</ul>\n"
     html += "</body>\n"
     html += "</html>\n"
     return html
