@@ -8,5 +8,5 @@ with open("mserve.json", "w") as fd:
     fd.write("{\n")
     fd.write('    "type": "series",\n')
     fd.write('    "title": "%s",\n' % title)
-    fd.write('    "tmdb_id": "%s"\n' % tmdb_id)
+    fd.write('    "tmdb_id": "tv/%s"\n' % tmdb_id)
     fd.write("}\n")
