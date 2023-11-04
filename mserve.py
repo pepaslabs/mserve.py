@@ -483,7 +483,7 @@ def scan_dir(url_path):
                     title = metadata.get('title', slug)
                     triples.append([title, slug, metadata])
             except Exception as e:
-                sys.stderr.write("❌ scan_dir: exception: %s\n" % e)
+                sys.stderr.write("❌ scan_dir: %s, exception: %s\n" % (json_fpath, e))
     triples.sort()
     return triples
 
@@ -712,8 +712,8 @@ def get_imdb_rating(imdb_id):
     global g_moviesdatabase_rate_limiter
     if imdb_id is None or imdb_id == "":
         return {}
-    dpath = make_file_path("~/.mserve/imdb_cache")
-    fpath = make_file_path(dpath, "%s.json" % imdb_id)
+    dpath = make_file_path("~/.mserve/moviesdatabase_cache")
+    fpath = make_file_path(dpath, "%s.ratings.json" % imdb_id)
     url = "https://moviesdatabase.p.rapidapi.com/titles/%s/ratings" % imdb_id
     if g_rapidapi_key:
         headers = [
