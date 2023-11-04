@@ -972,9 +972,9 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, rating_json):
                 proxied_image_url = "/tmdb-images/w500%s" % tmdb_json.get('poster_path')
                 proxied_image_url_2x = "/tmdb-images/w780%s" % tmdb_json.get('poster_path')
                 html += '<img src="%s" srcset="%s 2x" style="max-width:100%%">\n' % (proxied_image_url, proxied_image_url_2x)
+            html += '<p>%s</p>\n' % tmdb_json['overview']
             if 'results' in rating_json:
                 html += '<p>imdb: %s ⭐️</p>\n' % rating_json['results']['averageRating']
-            html += '<p>%s</p>\n' % tmdb_json['overview']
         elif 'title' in metadata:
             html += '<h1>%s</h1>\n' % metadata['title']
         return html
