@@ -31,7 +31,7 @@ import functools
 # The directory in which to look for media files.
 if 'MSERVE_MEDIA_DIR' in os.environ:
     g_media_dir = os.environ['MSERVE_MEDIA_DIR']
-else if os.path.exists(os.getcwd() + '/mserve.json'):
+elif os.path.exists(os.getcwd() + '/mserve.json'):
     g_media_dir = os.getcwd()
 else:
     g_media_dir = os.environ['HOME'] + '/Movies'
