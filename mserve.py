@@ -471,23 +471,30 @@ def slugify_file(fname):
 # Find show / directory slugs at the given subpath.
 # A slug is indicated by the presence of an mserve.json file.
 # returns triples of [title, slug, metadata]
-def scan_dir(url_path):
+def scan_dir(url_path, sort):
     triples = []
     json_fpath = make_file_path(g_media_dir, url_path, "mserve.json")
     if not os.path.isfile(json_fpath):
         return []
     dpath = make_file_path(g_media_dir, url_path)
     for slug in os.listdir(dpath):
+        slug_path = make_file_path(g_media_dir, url_path, slug)
+        mtime = os.path.getmtime(slug_path)
         json_fpath = make_file_path(g_media_dir, url_path, slug, "mserve.json")
         if os.path.isfile(json_fpath):
             try:
                 with open(json_fpath, 'rb') as fd:
                     metadata = json.load(fd)
                     title = metadata.get('title', slug)
-                    triples.append([title, slug, metadata])
+                    triples.append([mtime, title, slug, metadata])
             except Exception as e:
                 sys.stderr.write("❌ scan_dir: %s, exception: %s\n" % (json_fpath, e))
-    triples.sort()
+    if sort == "recent":
+        triples.sort(reverse=True)
+        triples = [(b, c, d) for (a, b, c, d) in triples]
+    else:
+        triples = [(b, c, d) for (a, b, c, d) in triples]
+        triples.sort()
     return triples
 
 # Load the mserve.json if present.
@@ -829,12 +836,13 @@ add_regex_route(
 
 def directory_endpoint(handler):
     url_path, query_dict = parse_GET_path(handler.path)
+    sort = query_dict.get("sort")
     metadata = load_mserve_json(url_path)
     if metadata is None:
         send_404(handler)
         return
     if metadata["type"] == "directory":
-        body = render_directory(handler, url_path)
+        body = render_directory(handler, url_path, sort)
         send_html(handler, 200, body)
     elif metadata["type"] == "series" or metadata["type"] == "movie":
         tmdb_id = metadata.get('tmdb_id')
@@ -855,7 +863,7 @@ add_regex_route(
     directory_endpoint
 )
 
-def render_directory(handler, url_path):
+def render_directory(handler, url_path, sort):
     def render_letter_links(titles):
         if len(titles) < 10:
             return ""
@@ -863,14 +871,8 @@ def render_directory(handler, url_path):
         links = ['<a href="#section-%s">%s</a>' % (l,l) for l in letters]
         html = "<p>[ %s ]</p>\n" % ' | '.join(links)
         return html
-    html = "<!DOCTYPE html>\n<html>\n"
-    html += '<head>\n<meta charset="UTF-8">\n'
-    html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
-    html += "</head>\n"
-    html += "<body>\n"
-    html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
-    triples = scan_dir(url_path)
-    if len(triples):
+
+    def prepare_tuples(triples):
         tuples = []
         for triple in triples:
             title, slug, metadata = triple
@@ -898,8 +900,38 @@ def render_directory(handler, url_path):
                 proxied_image_url_2x = "/tmdb-images/w185%s" % tmdb_json.get('poster_path')
             tuple = (title_text, slug, metadata, rating_json, show_url, proxied_image_url, proxied_image_url_2x)
             tuples.append(tuple)
+        return tuples
+
+    def render_list_links():
+        html = ""
+        html += "<br><br>\n"
+        html += "<h2>lists:</h2>\n"
+        html += "<ul>\n"
+        html += '<li><a href="https://www.afi.com/afi-lists/">AFI lists</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/chart/top/">IMDB Top 250 movies</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/search/title/?count=100&groups=top_1000&sort=user_rating">IMDB Top 1000 movies (by rating)</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/search/title/?groups=top_1000">IMDB Top 1000 movies (by popularity)</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/list/ls048276758/">rodneyjoneswriter\'s top 1000 films</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/list/ls090245754/">rodneyjoneswriter\'s top 2000 films</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/chart/toptv/">IMDB Top 250 TV shows</a></li>\n'
+        html += '<li><a href="https://editorial.rottentomatoes.com/all-time-lists/">Rotten Tomatoes lists</a></li>\n'
+        html += '<li><a href="https://www.metacritic.com/browse/movie/">Metacritic movies</a></li>\n'
+        html += '<li><a href="https://www.metacritic.com/browse/tv/">Metacritic TV shows</a></li>\n'
+        html += "</ul>\n"
+        return html
+
+    html = "<!DOCTYPE html>\n<html>\n"
+    html += '<head>\n<meta charset="UTF-8">\n'
+    html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
+    html += "</head>\n"
+    html += "<body>\n"
+    html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
+    triples = scan_dir(url_path, sort)
+    if len(triples):
+        tuples = prepare_tuples(triples)
         titles = list(map(lambda x: x[0], tuples))
-        html += render_letter_links(titles)
+        if sort is None:
+            html += render_letter_links(titles)
         current_letter = None
         for tuple in tuples:
             (title_text, slug, metadata, rating_json, show_url, proxied_image_url, proxied_image_url_2x) = tuple
@@ -928,20 +960,7 @@ def render_directory(handler, url_path):
                 else:
                     html += '<ul><li><a href="%s">%s</a></li></ul>\n' % (show_url, title_text)
     if url_path == "/":
-        html += "<br><br>\n"
-        html += "<h2>lists:</h2>\n"
-        html += "<ul>\n"
-        html += '<li><a href="https://www.afi.com/afi-lists/">AFI lists</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/chart/top/">IMDB Top 250 movies</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/search/title/?count=100&groups=top_1000&sort=user_rating">IMDB Top 1000 movies (by rating)</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/search/title/?groups=top_1000">IMDB Top 1000 movies (by popularity)</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/list/ls048276758/">rodneyjoneswriter\'s top 1000 films</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/list/ls090245754/">rodneyjoneswriter\'s top 2000 films</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/chart/toptv/">IMDB Top 250 TV shows</a></li>\n'
-        html += '<li><a href="https://editorial.rottentomatoes.com/all-time-lists/">Rotten Tomatoes lists</a></li>\n'
-        html += '<li><a href="https://www.metacritic.com/browse/movie/">Metacritic movies</a></li>\n'
-        html += '<li><a href="https://www.metacritic.com/browse/tv/">Metacritic TV shows</a></li>\n'
-        html += "</ul>\n"
+        html += render_list_links()
     html += "</body>\n"
     html += "</html>\n"
     return html
