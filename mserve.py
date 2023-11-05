@@ -885,7 +885,8 @@ def render_directory(handler, url_path):
                 title_text = tmdb_json.get('title', tmdb_json.get('name'))
                 release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
                 if len(release_date):
-                    title_text += ' (%s)' % release_date.split('-')[0]
+                    release_year = release_date.split('-')[0]
+                    title_text += ' (%s)' % release_year
             elif 'title' in metadata:
                 title_text = metadata['title']
             else:
