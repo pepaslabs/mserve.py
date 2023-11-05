@@ -29,9 +29,12 @@ import functools
 #
 
 # The directory in which to look for media files.
-g_media_dir = os.environ['HOME'] + '/Movies'
 if 'MSERVE_MEDIA_DIR' in os.environ:
     g_media_dir = os.environ['MSERVE_MEDIA_DIR']
+else if os.path.exists(os.getcwd() + '/mserve.json'):
+    g_media_dir = os.getcwd()
+else:
+    g_media_dir = os.environ['HOME'] + '/Movies'
 
 # The token used to access the themoviedb.org API.
 g_tmdb_token = None
