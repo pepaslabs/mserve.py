@@ -872,7 +872,16 @@ def render_directory(handler, url_path, sort):
         html = "<p>[ %s ]</p>\n" % ' | '.join(links)
         return html
 
-    def prepare_tuples(triples):
+    def render_sort_links():
+        links = [
+            '<a href="%s">alpha</a>' % url_path,
+            '<a href="%s?sort=recent">recent</a>' % url_path,
+            '<a href="%s?sort=score">score</a>' % url_path
+        ]
+        html = "<p>sort: [ %s ]</p>\n" % ' | '.join(links)
+        return html
+
+    def prepare_tuples(triples, sort):
         tuples = []
         for triple in triples:
             title, slug, metadata = triple
@@ -882,7 +891,12 @@ def render_directory(handler, url_path, sort):
             imdb_id = metadata.get('imdb_id')
             if imdb_id is None:
                 imdb_id = tmdb_json.get('imdb_id')
+            rating = -1
             rating_json = get_imdb_rating(imdb_id)
+            if rating_json is not None:
+                results = rating_json.get('results')
+                if results is not None:
+                    rating = results.get('averageRating')
             if 'title' in tmdb_json or 'name' in tmdb_json:
                 title_text = tmdb_json.get('title', tmdb_json.get('name'))
                 release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
@@ -898,8 +912,12 @@ def render_directory(handler, url_path, sort):
             if 'poster_path' in tmdb_json:
                 proxied_image_url = "/tmdb-images/w92%s" % tmdb_json.get('poster_path')
                 proxied_image_url_2x = "/tmdb-images/w185%s" % tmdb_json.get('poster_path')
-            tuple = (title_text, slug, metadata, rating_json, show_url, proxied_image_url, proxied_image_url_2x)
+            tuple = (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x)
             tuples.append(tuple)
+        if sort == "score":
+            tuples = [(rating, a, b, c, e, f, g) for (a, b, c, rating, e, f, g) in tuples]
+            tuples.sort(reverse=True)
+            tuples = [(a, b, c, rating, e, f, g) for (rating, a, b, c, e, f, g) in tuples]
         return tuples
 
     def render_list_links():
@@ -928,13 +946,14 @@ def render_directory(handler, url_path, sort):
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     triples = scan_dir(url_path, sort)
     if len(triples):
-        tuples = prepare_tuples(triples)
+        tuples = prepare_tuples(triples, sort)
         titles = list(map(lambda x: x[0], tuples))
+        html += render_sort_links()
         if sort is None:
             html += render_letter_links(titles)
         current_letter = None
         for tuple in tuples:
-            (title_text, slug, metadata, rating_json, show_url, proxied_image_url, proxied_image_url_2x) = tuple
+            (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x) = tuple
             letter = title_text[0].upper()
             anchor_id = None
             if letter >= 'A' and letter <= 'Z' and letter != current_letter:
@@ -950,8 +969,8 @@ def render_directory(handler, url_path, sort):
                 html += '</div>\n'
                 html += '<div style="display: inline-block; vertical-align: middlet;">\n'
                 html += '<a href="%s">%s</a>\n' % (show_url, title_text)
-                if 'results' in rating_json:
-                    html += '<ul><li>imdb: %s ⭐️</li></ul>\n' % rating_json['results']['averageRating']
+                if rating is not None and rating > 0:
+                    html += '<ul><li>imdb: %s ⭐️</li></ul>\n' % rating
                 html += '</div>\n'
                 html += "</div>\n"
             else:
@@ -1011,8 +1030,11 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
                 proxied_image_url_2x = "/tmdb-images/w780%s" % tmdb_json.get('poster_path')
                 html += '<img src="%s" srcset="%s 2x" style="max-width:100%%">\n' % (proxied_image_url, proxied_image_url_2x)
             html += '<p>%s</p>\n' % tmdb_json['overview']
+            rating = -1
             if 'results' in rating_json:
-                html += '<p><a href="https://www.imdb.com/title/%s/">imdb</a>: %s ⭐️</p>\n' % (imdb_id, rating_json['results']['averageRating'])
+                rating_json['results']['averageRating']
+            if rating > 0:
+                html += '<p><a href="https://www.imdb.com/title/%s/">imdb</a>: %s ⭐️</p>\n' % (imdb_id, rating)
         elif 'title' in metadata:
             html += '<h1>%s</h1>\n' % metadata['title']
         return html
