@@ -1108,6 +1108,7 @@ if __name__ == "__main__":
         port = 8000
         address_pair = ('', 8000)
         server = http.server.ThreadingHTTPServer(address_pair, Handler)
+        sys.stderr.write("Serving from directory %s\n" % g_media_dir)
         sys.stderr.write("Routable IP address detected as %s\n" % g_ip_address)
         sys.stderr.write("Listening on port %s\n" % port)
         server.serve_forever()
