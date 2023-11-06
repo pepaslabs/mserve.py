@@ -1032,7 +1032,7 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
             html += '<p>%s</p>\n' % tmdb_json['overview']
             rating = -1
             if 'results' in rating_json:
-                rating_json['results']['averageRating']
+                rating = rating_json['results']['averageRating']
             if rating > 0:
                 html += '<p><a href="https://www.imdb.com/title/%s/">imdb</a>: %s ⭐️</p>\n' % (imdb_id, rating)
         elif 'title' in metadata:
