@@ -23,6 +23,7 @@ import urllib.request
 import socket
 import subprocess
 import functools
+import sqlite3
 
 #
 # mserve configuration via environment
@@ -358,8 +359,9 @@ def handle_request(handler):
     if fn is None:
         send_404(handler)
     else:
+        db = get_db()
         try:
-            fn(handler)
+            fn(handler, db)
         except BrokenPipeError:
             pass
         except ConnectionResetError:
@@ -367,6 +369,8 @@ def handle_request(handler):
         except Exception as e:
             send_500(handler, "%s" % e)
             raise e
+        finally:
+            db.close()
     now = datetime.datetime.now()
     elapsed = now - then
     sys.stderr.write("  Elapsed: %0.3fms\n" % (elapsed.total_seconds() * 1000))
@@ -662,6 +666,47 @@ def get_tmdb_show_details(tmdb_id):
     else:
         return get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
 
+# Fetch the credits for a show and add them to the sqlite db if needed.
+# tmdb_id should be e.g. "tv/1087" or "movie/199".
+# Does not return a value.
+def fetch_tmdb_show_details_credits(tmdb_id, db):
+    global g_tmdb_token
+    global g_tmdb_rate_limiter
+    if tmdb_id is None or len(tmdb_id) == 0:
+        return
+    tmdb_type = tmdb_id.split("/")[0]
+    tmdb_num = tmdb_id.split("/")[1]
+    cursor = db.cursor()
+    cursor.execute('SELECT COUNT(id) FROM tmdb_cast WHERE tmdb_id = ?;', (tmdb_id,))
+    row = cursor.fetchone()
+    count = row[0]
+    cursor.close()
+    if count > 0:
+        return
+    dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
+    fpath = make_file_path(dpath, "%s.credits.json" % tmdb_num)
+    url = "https://api.themoviedb.org/3/%s/credits" % tmdb_id
+    if g_tmdb_token:
+        headers = [
+            ['Authorization', 'Bearer %s' % g_tmdb_token]
+        ]
+        js = get_json_from_url(url, fpath, headers, rate_limiter=g_tmdb_rate_limiter)
+    else:
+        js = get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
+    cursor = db.cursor()
+    sql = "INSERT OR REPLACE INTO tmdb_cast (tmdb_id, name, character) VALUES (?, ?, ?);"
+    for credit in js["cast"]:
+        name = credit["name"]
+        character = credit["character"]
+        cursor.execute(sql, (tmdb_id, name, character))
+    sql = "INSERT OR REPLACE INTO tmdb_crew (tmdb_id, name, job) VALUES (?, ?, ?);"
+    for credit in js["crew"]:
+        name = credit["name"]
+        job = credit["job"]
+        cursor.execute(sql, (tmdb_id, name, job))
+    db.commit()
+    cursor.close()
+
 # Return the JSON for the given season, using cache if available.
 # tmdb_id should be e.g. "tv/1087".
 # Returns empty dictionary in case of failure.
@@ -738,7 +783,7 @@ def get_imdb_rating(imdb_id):
 # /.../:file/player endpoint
 #
 
-def player_endpoint(handler):
+def player_endpoint(handler, db):
     full_url_path, query_dict = parse_GET_path(handler.path)
     show_url_path = '/'.join(full_url_path.split('/')[:-2])
     fname = full_url_path.split('/')[-2]
@@ -790,7 +835,7 @@ def render_player(show_url_path, title, season, episode, fname, content_type, fi
 # /tmdb-images/:size_class/:tmdb_image endpoint
 #
 
-def image_endpoint(handler):
+def image_endpoint(handler, db):
     url_path, query_dict = parse_GET_path(handler.path)
     tmdb_image_fname = url_path.split('/')[-1]
     size_class = url_path.split('/')[-2]
@@ -811,7 +856,7 @@ add_regex_route(
 # /.../:file endpoint
 #
 
-def file_endpoint(handler):
+def file_endpoint(handler, db):
     url_path, query_dict = parse_GET_path(handler.path)
     fpath = make_file_path(g_media_dir, url_path)
     is_head = (handler.command == 'HEAD')
@@ -834,7 +879,7 @@ add_regex_route(
 # directory endpoint
 #
 
-def directory_endpoint(handler):
+def directory_endpoint(handler, db):
     url_path, query_dict = parse_GET_path(handler.path)
     sort = query_dict.get("sort")
     metadata = load_mserve_json(url_path)
@@ -842,7 +887,7 @@ def directory_endpoint(handler):
         send_404(handler)
         return
     if metadata["type"] == "directory":
-        body = render_directory(handler, url_path, sort)
+        body = render_directory(handler, url_path, sort, db)
         send_html(handler, 200, body)
     elif metadata["type"] == "series" or metadata["type"] == "movie":
         tmdb_id = metadata.get('tmdb_id')
@@ -863,7 +908,7 @@ add_regex_route(
     directory_endpoint
 )
 
-def render_directory(handler, url_path, sort):
+def render_directory(handler, url_path, sort, db):
     def render_letter_links(titles):
         if len(titles) < 10:
             return ""
@@ -888,6 +933,7 @@ def render_directory(handler, url_path, sort):
             show_url = make_url_path(url_path, slug)
             tmdb_id = metadata.get('tmdb_id')
             tmdb_json = get_tmdb_show_details(tmdb_id)
+            fetch_tmdb_show_details_credits(tmdb_id, db)
             imdb_id = metadata.get('imdb_id')
             if imdb_id is None:
                 imdb_id = tmdb_json.get('imdb_id')
@@ -944,9 +990,9 @@ def render_directory(handler, url_path, sort):
     html += "</head>\n"
     html += "<body>\n"
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
-    triples = scan_dir(url_path, sort)
+    triples = scan_dir(url_path, sort) # 23ms for 178 movies
     if len(triples):
-        tuples = prepare_tuples(triples, sort)
+        tuples = prepare_tuples(triples, sort) # 80ms for 178 movies
         titles = list(map(lambda x: x[0], tuples))
         html += render_sort_links()
         if sort is None:
@@ -1136,6 +1182,61 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
     html += "</html>\n"
     return html
 
+def get_db():
+    db_fpath = make_file_path("~/.mserve/db.sqlite3")
+    return sqlite3.connect(db_fpath)
+
+def init_db():
+    db = get_db()
+    # "cast": [
+    #     {
+    #       "adult": false,
+    #       "gender": 2,
+    #       "id": 934,
+    #       "known_for_department": "Acting",
+    #       "name": "Russell Crowe",
+    #       "original_name": "Russell Crowe",
+    #       "popularity": 58.685,
+    #       "profile_path": "/fbzD4utSGJlsV8XbYMLoMdEZ1Fc.jpg",
+    #       "cast_id": 11,
+    #       "character": "Richie Roberts",
+    #       "credit_id": "52fe43ebc3a36847f80783cb",
+    #       "order": 0
+    #     },
+    db.execute("""
+CREATE TABLE IF NOT EXISTS tmdb_cast (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tmdb_id TEXT NOT NULL, -- e.g. 'tv/123' or 'movie/456'
+    name TEXT NOT NULL, -- e.g. 'Al Pacino'
+    character TEXT NOT NULL, -- e.g. 'Michael Corleone'
+    UNIQUE(tmdb_id, name, character)
+);
+""")
+    # "crew": [
+    #     {
+    #         "adult": false,
+    #         "gender": 1,
+    #         "id": 2952,
+    #         "known_for_department": "Production",
+    #         "name": "Avy Kaufman",
+    #         "original_name": "Avy Kaufman",
+    #         "popularity": 5.419,
+    #         "profile_path": null,
+    #         "credit_id": "52fe43ebc3a36847f80783c7",
+    #         "department": "Production",
+    #         "job": "Casting"
+    #     },
+    db.execute("""
+CREATE TABLE IF NOT EXISTS tmdb_crew (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tmdb_id TEXT NOT NULL, -- e.g. 'tv/123' or 'movie/456'
+    name TEXT NOT NULL, -- e.g. 'Martin Scorsese'
+    job TEXT NOT NULL, -- e.g. 'Director'
+    UNIQUE(tmdb_id, name, job)
+);
+""")
+    db.close()
+
 #
 # main
 #
@@ -1147,6 +1248,7 @@ if __name__ == "__main__":
             slugify_file(arg)
     else:
         # otherwise start the server.
+        init_db()
         port = 8000
         address_pair = ('', 8000)
         server = http.server.ThreadingHTTPServer(address_pair, Handler)
