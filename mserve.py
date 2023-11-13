@@ -953,10 +953,10 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
     def render_sort_links():
         links = [
             '<a href="%s">alphabetical</a>' % url_path,
-            '<a href="%s?sort=recent">recent</a>' % url_path,
+            '<a href="%s?sort=recent">recently added</a>' % url_path,
             '<a href="%s?sort=score">score</a>' % url_path
         ]
-        html = "<p>sort: [ %s ]</p>\n" % ' | '.join(links)
+        html = "<p>sort by: [ %s ]</p>\n" % ' | '.join(links)
         return html
     
     def render_tag_links(tags):
