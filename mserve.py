@@ -20,6 +20,7 @@ import json
 import http.server
 import mimetypes
 import urllib.request
+import urllib.parse
 import socket
 import subprocess
 import functools
@@ -47,6 +48,7 @@ g_rapidapi_key = None
 if 'RAPIDAPI_KEY' in os.environ:
     g_rapidapi_key = os.environ['RAPIDAPI_KEY']
 
+
 #
 # Python utils
 #
@@ -58,6 +60,7 @@ def list_get(l, index, default=None):
         return l[index]
     except IndexError:
         return default
+
 
 # Guess the outwardly-routable IP address.
 def outward_ip_address():
@@ -86,6 +89,7 @@ def outward_ip_address():
         return socket.gethostbyname(socket.gethostname())
 
 g_ip_address = outward_ip_address()
+
 
 #
 # HTTP / HTML utils
@@ -307,6 +311,7 @@ def send_file(handler, fpath, is_head=False, data=None, content_type=None, immut
         send_500(handler, "%s" % e)
         raise e
 
+
 #
 # Routing
 #
@@ -341,6 +346,7 @@ def add_static_route(http_method, url_path, fn):
 
 def add_regex_route(http_method, label, regex, fn):
     g_regex_routes.append([http_method, label, regex, fn])
+
 
 #
 # HTTP server.
@@ -468,6 +474,7 @@ def slugify_file(fname):
     if answer.lower() == 'y' or answer == '':
         os.rename(fname, slug_fname)
 
+
 #
 # mserve media storage layer
 #
@@ -475,7 +482,7 @@ def slugify_file(fname):
 # Find show / directory slugs at the given subpath.
 # A slug is indicated by the presence of an mserve.json file.
 # returns triples of [title, slug, metadata]
-def scan_dir(url_path, sort):
+def scan_dir(url_path, sort, tmdb_ids=None):
     triples = []
     json_fpath = make_file_path(g_media_dir, url_path, "mserve.json")
     if not os.path.isfile(json_fpath):
@@ -490,6 +497,11 @@ def scan_dir(url_path, sort):
                 with open(json_fpath, 'rb') as fd:
                     metadata = json.load(fd)
                     title = metadata.get('title', slug)
+                    if tmdb_ids is not None:
+                        if "tmdb_id" not in metadata:
+                            continue
+                        if metadata["tmdb_id"] not in tmdb_ids:
+                            continue
                     triples.append([mtime, title, slug, metadata])
             except Exception as e:
                 sys.stderr.write("❌ scan_dir: %s, exception: %s\n" % (json_fpath, e))
@@ -501,10 +513,12 @@ def scan_dir(url_path, sort):
         triples.sort()
     return triples
 
+
 # Load the mserve.json if present.
 def load_mserve_json(url_path):
     fpath = make_file_path(g_media_dir, url_path, "mserve.json")
     return load_json(fpath)
+
 
 # Load the json file if present.
 def load_json(fpath):
@@ -516,6 +530,7 @@ def load_json(fpath):
             sys.stderr.write("❌ load_json: exception: %s\n" % e)
     return None
 
+
 # Load the binary file if present.
 def load_file(fpath):
     if os.path.isfile(fpath):
@@ -525,6 +540,7 @@ def load_file(fpath):
         except Exception as e:
             sys.stderr.write("❌ load_file: exception: %s\n" % e)
     return None
+
 
 # Parse the season and episode number from a filename.
 def parse_filename(fname):
@@ -563,6 +579,7 @@ def parse_filename(fname):
     # otherwise, this is a misc. video.
     return [None, None, fname]
 
+
 # Custom key function to sort video triples.
 # Sort by season, then episode, then fname.
 # 'None' always comes after a numeric value.
@@ -571,6 +588,7 @@ def sort_key_video_triple(k):
     if season is None: season = 9999
     if episode is None: episode = 9999
     return (season, episode, fname)
+
 
 # Scan a show for seasons, episodes and filenames.
 # Returns an array of "season groups".
@@ -604,6 +622,7 @@ def scan_for_videos(url_path):
     if len(season_group):
         season_groups.append((current_season,season_group))
     return season_groups
+
 
 #
 # themoviedb.org layer.
@@ -645,6 +664,7 @@ def get_json_from_url(url, cache_fpath, headers, rate_limiter=None, cache_only=F
         sys.stderr.write("❌ get_json_from_url: exception: %s\n" % e)
         return {}
 
+
 # Return the JSON for the given show, using cache if available.
 # tmdb_id should be e.g. "tv/1087" or "movie/199".
 # Returns empty dictionary in case of failure.
@@ -665,6 +685,7 @@ def get_tmdb_show_details(tmdb_id):
         return get_json_from_url(url, fpath, headers, rate_limiter=g_tmdb_rate_limiter)
     else:
         return get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
+
 
 # Fetch the credits for a show and add them to the sqlite db if needed.
 # tmdb_id should be e.g. "tv/1087" or "movie/199".
@@ -694,18 +715,21 @@ def fetch_tmdb_show_details_credits(tmdb_id, db):
     else:
         js = get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
     cursor = db.cursor()
-    sql = "INSERT OR REPLACE INTO tmdb_cast (tmdb_id, name, character) VALUES (?, ?, ?);"
-    for credit in js["cast"]:
-        name = credit["name"]
-        character = credit["character"]
-        cursor.execute(sql, (tmdb_id, name, character))
-    sql = "INSERT OR REPLACE INTO tmdb_crew (tmdb_id, name, job) VALUES (?, ?, ?);"
-    for credit in js["crew"]:
-        name = credit["name"]
-        job = credit["job"]
-        cursor.execute(sql, (tmdb_id, name, job))
+    if "cast" in js:
+        sql = "INSERT OR REPLACE INTO tmdb_cast (tmdb_id, name, character) VALUES (?, ?, ?);"
+        for credit in js["cast"]:
+            name = credit["name"]
+            character = credit["character"]
+            cursor.execute(sql, (tmdb_id, name, character))
+    if "crew" in js:
+        sql = "INSERT OR REPLACE INTO tmdb_crew (tmdb_id, name, job) VALUES (?, ?, ?);"
+        for credit in js["crew"]:
+            name = credit["name"]
+            job = credit["job"]
+            cursor.execute(sql, (tmdb_id, name, job))
     db.commit()
     cursor.close()
+
 
 # Return the JSON for the given season, using cache if available.
 # tmdb_id should be e.g. "tv/1087".
@@ -728,6 +752,7 @@ def get_tmdb_season_details(tmdb_id, season_num):
     else:
         return get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
 
+
 # Return the data for the given URL, using / populating cache if available.
 # Returns None in case of failure.
 def get_file_from_url(url, cache_fpath, headers=[]):
@@ -749,6 +774,7 @@ def get_file_from_url(url, cache_fpath, headers=[]):
     except Exception as e:
         sys.stderr.write("❌ get_file_from_url: exception: %s\n" % e)
         return None
+
 
 #
 # moviesdatabase.p.rapidapi.com layer.
@@ -778,6 +804,7 @@ def get_imdb_rating(imdb_id):
         return get_json_from_url(url, fpath, headers, rate_limiter=g_moviesdatabase_rate_limiter)
     else:
         return get_json_from_url(url, fpath, [], rate_limiter=g_moviesdatabase_rate_limiter, cache_only=True)
+
 
 #
 # /.../:file/player endpoint
@@ -831,6 +858,7 @@ def render_player(show_url_path, title, season, episode, fname, content_type, fi
     html += "</html>\n"
     return html
 
+
 #
 # /tmdb-images/:size_class/:tmdb_image endpoint
 #
@@ -851,6 +879,7 @@ add_regex_route(
     re.compile('^\/tmdb-images\/w[0-9]+\/[a-zA-Z0-9]+\.(jpg|jpeg|png|webp)$'),
     image_endpoint
 )
+
 
 #
 # /.../:file endpoint
@@ -875,6 +904,7 @@ add_regex_route(
     file_endpoint
 )
 
+
 #
 # directory endpoint
 #
@@ -882,12 +912,15 @@ add_regex_route(
 def directory_endpoint(handler, db):
     url_path, query_dict = parse_GET_path(handler.path)
     sort = query_dict.get("sort")
+    actor = query_dict.get("actor")
+    director = query_dict.get("director")
     metadata = load_mserve_json(url_path)
     if metadata is None:
         send_404(handler)
         return
+    tags = metadata.get("tags")
     if metadata["type"] == "directory":
-        body = render_directory(handler, url_path, sort, db)
+        body = render_directory(handler, url_path, sort, tags, actor, director, db)
         send_html(handler, 200, body)
     elif metadata["type"] == "series" or metadata["type"] == "movie":
         tmdb_id = metadata.get('tmdb_id')
@@ -908,7 +941,7 @@ add_regex_route(
     directory_endpoint
 )
 
-def render_directory(handler, url_path, sort, db):
+def render_directory(handler, url_path, sort, tags, actor, director, db):
     def render_letter_links(titles):
         if len(titles) < 10:
             return ""
@@ -919,11 +952,31 @@ def render_directory(handler, url_path, sort, db):
 
     def render_sort_links():
         links = [
-            '<a href="%s">alpha</a>' % url_path,
+            '<a href="%s">alphabetical</a>' % url_path,
             '<a href="%s?sort=recent">recent</a>' % url_path,
             '<a href="%s?sort=score">score</a>' % url_path
         ]
         html = "<p>sort: [ %s ]</p>\n" % ' | '.join(links)
+        return html
+    
+    def render_tag_links(tags):
+        html = ""
+        if tags is None:
+            return html
+        if "actor" in tags and len(tags["actor"]) > 0:
+            anchors = []
+            for actor in sorted(tags["actor"]):
+                url = "%s?actor=%s" % (url_path, urllib.parse.quote(actor))
+                anchor = '<a href="%s">%s</a>' % (url, actor)
+                anchors.append(anchor)
+            html += "<p>actor: [ %s ]</p>\n" % ' | '.join(anchors)
+        if "director" in tags and len(tags["director"]) > 0:
+            anchors = []
+            for director in sorted(tags["director"]):
+                url = "%s?director=%s" % (url_path, urllib.parse.quote(director))
+                anchor = '<a href="%s">%s</a>' % (url, director)
+                anchors.append(anchor)
+            html += "<p>director: [ %s ]</p>\n" % ' | '.join(anchors)
         return html
 
     def prepare_tuples(triples, sort):
@@ -990,12 +1043,20 @@ def render_directory(handler, url_path, sort, db):
     html += "</head>\n"
     html += "<body>\n"
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
-    triples = scan_dir(url_path, sort) # 23ms for 178 movies
+    if actor is not None:
+        tmdb_ids = get_tmdb_ids_for_actor(actor, db)
+        triples = scan_dir(url_path, sort, tmdb_ids=tmdb_ids)
+    elif director is not None:
+        tmdb_ids = get_tmdb_ids_for_director(director, db)
+        triples = scan_dir(url_path, sort, tmdb_ids=tmdb_ids)
+    else:
+        triples = scan_dir(url_path, sort) # 23ms for 178 movies
     if len(triples):
         tuples = prepare_tuples(triples, sort) # 80ms for 178 movies
         titles = list(map(lambda x: x[0], tuples))
         html += render_sort_links()
-        if sort is None:
+        html += render_tag_links(tags)
+        if sort is None and actor is None and director is None:
             html += render_letter_links(titles)
         current_letter = None
         for tuple in tuples:
@@ -1182,12 +1243,19 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
     html += "</html>\n"
     return html
 
+
+#
+# Database layer
+#
+
 def get_db():
     db_fpath = make_file_path("~/.mserve/db.sqlite3")
     return sqlite3.connect(db_fpath)
 
+
 def init_db():
     db = get_db()
+    # tmdb credits JSON:
     # "cast": [
     #     {
     #       "adult": false,
@@ -1212,6 +1280,7 @@ CREATE TABLE IF NOT EXISTS tmdb_cast (
     UNIQUE(tmdb_id, name, character)
 );
 """)
+    # tmdb credits JSON:
     # "crew": [
     #     {
     #         "adult": false,
@@ -1236,6 +1305,25 @@ CREATE TABLE IF NOT EXISTS tmdb_crew (
 );
 """)
     db.close()
+
+
+# Returns the list of tmdb_ids matching the actor name.
+def get_tmdb_ids_for_actor(name, db):
+    cursor = db.cursor()
+    cursor.execute('SELECT tmdb_id FROM tmdb_cast WHERE UPPER(name) = ?;', (name.upper(),))
+    tmdb_ids = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    return tmdb_ids
+
+
+# Returns the list of tmdb_ids matching the director name.
+def get_tmdb_ids_for_director(name, db):
+    cursor = db.cursor()
+    cursor.execute('SELECT tmdb_id FROM tmdb_crew WHERE UPPER(name) = ? AND UPPER(job) = "DIRECTOR";', (name.upper(),))
+    tmdb_ids = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    return tmdb_ids
+
 
 #
 # main
