@@ -929,7 +929,7 @@ def directory_endpoint(handler, db):
         if imdb_id is None:
             imdb_id = tmdb_json.get('imdb_id')
         rating_json = get_imdb_rating(imdb_id)
-        body = render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating_json)
+        body = render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating_json, db)
         send_html(handler, 200, body)
     else:
         send_500("Bad mserve.json")
@@ -1091,7 +1091,7 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
     html += "</html>\n"
     return html
 
-def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating_json):
+def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating_json, db):
     def render_links(fname):
         file_url = make_url_path(url_path, fname)
         player_url = make_url_path(url_path, fname, 'player')
@@ -1140,6 +1140,9 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
             rating = -1
             if 'results' in rating_json:
                 rating = rating_json['results']['averageRating']
+            director = get_director(tmdb_id, db)
+            if director is not None:
+                html += '<p>Directed by %s.</p>\n' % director
             if rating > 0:
                 html += '<p><a href="https://www.imdb.com/title/%s/">imdb</a>: %s ⭐️</p>\n' % (imdb_id, rating)
         elif 'title' in metadata:
@@ -1323,6 +1326,15 @@ def get_tmdb_ids_for_director(name, db):
     tmdb_ids = [row[0] for row in cursor.fetchall()]
     cursor.close()
     return tmdb_ids
+
+
+# Returns the director's name for the given tmdb_id.
+def get_director(tmdb_id, db):
+    cursor = db.cursor()
+    cursor.execute('SELECT name FROM tmdb_crew WHERE tmdb_id = ? AND UPPER(job) = "DIRECTOR";', (tmdb_id,))
+    director = cursor.fetchone()
+    cursor.close()
+    return director
 
 
 #
