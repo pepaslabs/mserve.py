@@ -954,7 +954,8 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
         links = [
             '<a href="%s">alphabetical</a>' % url_path,
             '<a href="%s?sort=recent">recently added</a>' % url_path,
-            '<a href="%s?sort=score">score</a>' % url_path
+            '<a href="%s?sort=score">score</a>' % url_path,
+            '<a href="%s?sort=chronological">chronological</a>' % url_path,
         ]
         html = "<p>sort by: [ %s ]</p>\n" % ' | '.join(links)
         return html
@@ -996,6 +997,7 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
                 results = rating_json.get('results')
                 if results is not None:
                     rating = results.get('averageRating')
+            release_date = "0000-00-00"
             if 'title' in tmdb_json or 'name' in tmdb_json:
                 title_text = tmdb_json.get('title', tmdb_json.get('name'))
                 release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
@@ -1011,12 +1013,16 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
             if 'poster_path' in tmdb_json:
                 proxied_image_url = "/tmdb-images/w92%s" % tmdb_json.get('poster_path')
                 proxied_image_url_2x = "/tmdb-images/w185%s" % tmdb_json.get('poster_path')
-            tuple = (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x)
+            tuple = (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x, release_date)
             tuples.append(tuple)
         if sort == "score":
-            tuples = [(rating, a, b, c, e, f, g) for (a, b, c, rating, e, f, g) in tuples]
+            tuples = [(rating, a, b, c, e, f, g, h) for (a, b, c, rating, e, f, g, h) in tuples]
             tuples.sort(reverse=True)
-            tuples = [(a, b, c, rating, e, f, g) for (rating, a, b, c, e, f, g) in tuples]
+            tuples = [(a, b, c, rating, e, f, g, h) for (rating, a, b, c, e, f, g, h) in tuples]
+        elif sort == "chronological":
+            tuples = [(release_date, a, b, c, d, e, f, g) for (a, b, c, d, e, f, g, release_date) in tuples]
+            tuples.sort(reverse=True)
+            tuples = [(a, b, c, d, e, f, g, release_date) for (release_date, a, b, c, d, e, f, g) in tuples]
         return tuples
 
     def render_list_links():
@@ -1060,7 +1066,7 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
             html += render_letter_links(titles)
         current_letter = None
         for tuple in tuples:
-            (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x) = tuple
+            (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x, release_date) = tuple
             letter = title_text[0].upper()
             anchor_id = None
             if letter >= 'A' and letter <= 'Z' and letter != current_letter:
