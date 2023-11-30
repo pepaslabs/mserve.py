@@ -1043,6 +1043,36 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
         html += "</ul>\n"
         return html
 
+    def render_video_entry(tuple, current_letter):
+        html = ""
+        (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x, release_date) = tuple
+        letter = title_text[0].upper()
+        anchor_id = None
+        is_new_section = letter >= 'A' and letter <= 'Z' and letter != current_letter
+        if is_new_section:
+            current_letter = letter
+            anchor_id = "section-%s" % letter
+        if proxied_image_url:
+            if anchor_id:
+                html += '<div id="%s">\n' % anchor_id
+            else:
+                html += '<div>\n'
+            html += '<div style="display: inline-block; vertical-align: middle;">\n'
+            html += '<a href="%s"><img src="%s" srcset="%s 2x" style="max-width:100%%"></a>\n' % (show_url, proxied_image_url, proxied_image_url_2x)
+            html += '</div>\n'
+            html += '<div style="display: inline-block; vertical-align: middlet;">\n'
+            html += '<a href="%s">%s</a>\n' % (show_url, title_text)
+            if rating is not None and rating > 0:
+                html += '<ul><li>imdb: %s ⭐️</li></ul>\n' % rating
+            html += '</div>\n'
+            html += "</div>\n"
+        else:
+            if anchor_id:
+                html += '<ul id="%s"><li><a href="%s">%s</a></li></ul>\n' % (anchor_id, show_url, title_text)
+            else:
+                html += '<ul><li><a href="%s">%s</a></li></ul>\n' % (show_url, title_text)
+        return (html, current_letter)
+
     html = "<!DOCTYPE html>\n<html>\n"
     html += '<head>\n<meta charset="UTF-8">\n'
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
@@ -1066,36 +1096,14 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
             html += render_letter_links(titles)
         current_letter = None
         for tuple in tuples:
-            (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x, release_date) = tuple
-            letter = title_text[0].upper()
-            anchor_id = None
-            if letter >= 'A' and letter <= 'Z' and letter != current_letter:
-                current_letter = letter
-                anchor_id = "section-%s" % letter
-            if proxied_image_url:
-                if anchor_id:
-                    html += '<div id="%s">\n' % anchor_id
-                else:
-                    html += '<div>\n'
-                html += '<div style="display: inline-block; vertical-align: middle;">\n'
-                html += '<a href="%s"><img src="%s" srcset="%s 2x" style="max-width:100%%"></a>\n' % (show_url, proxied_image_url, proxied_image_url_2x)
-                html += '</div>\n'
-                html += '<div style="display: inline-block; vertical-align: middlet;">\n'
-                html += '<a href="%s">%s</a>\n' % (show_url, title_text)
-                if rating is not None and rating > 0:
-                    html += '<ul><li>imdb: %s ⭐️</li></ul>\n' % rating
-                html += '</div>\n'
-                html += "</div>\n"
-            else:
-                if anchor_id:
-                    html += '<ul id="%s"><li><a href="%s">%s</a></li></ul>\n' % (anchor_id, show_url, title_text)
-                else:
-                    html += '<ul><li><a href="%s">%s</a></li></ul>\n' % (show_url, title_text)
+            (h, current_letter) = render_video_entry(tuple, current_letter)
+            html += h
     if url_path == "/":
         html += render_list_links()
     html += "</body>\n"
     html += "</html>\n"
     return html
+
 
 def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating_json, db):
     def render_links(fname):
