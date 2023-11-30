@@ -1048,7 +1048,6 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
     html += "</head>\n"
     html += "<body>\n"
-    html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
     if actor is not None:
         tmdb_ids = get_tmdb_ids_for_actor(actor, db)
         triples = scan_dir(url_path, sort, tmdb_ids=tmdb_ids)
@@ -1057,6 +1056,7 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
         triples = scan_dir(url_path, sort, tmdb_ids=tmdb_ids)
     else:
         triples = scan_dir(url_path, sort) # 23ms for 178 movies
+    html += "<h1>%s (%s)</h1>\n" % (render_url_path_links(url_path), len(triples))
     if len(triples):
         tuples = prepare_tuples(triples, sort) # 80ms for 178 movies
         titles = list(map(lambda x: x[0], tuples))
