@@ -965,18 +965,34 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
         if tags is None:
             return html
         if "actor" in tags and len(tags["actor"]) > 0:
-            anchors = []
-            for actor in sorted(tags["actor"]):
-                url = "%s?actor=%s" % (url_path, urllib.parse.quote(actor))
-                anchor = '<a href="%s">%s</a>' % (url, actor)
-                anchors.append(anchor)
+            pairs = []
+            for actor in tags["actor"]:
+                full_name = actor
+                last_name = actor.split()[-1]
+                alias = actor
+                if '|' in actor:
+                    full_name = actor.split('|')[0]
+                    alias = actor.split('|')[1]
+                url = "%s?actor=%s&sort=chronological" % (url_path, urllib.parse.quote(full_name))
+                anchor = '<a href="%s">%s</a>' % (url, alias)
+                pair = (last_name, anchor)
+                pairs.append(pair)
+            anchors = [pair[1] for pair in sorted(pairs)]
             html += "<p>actor: [ %s ]</p>\n" % ' | '.join(anchors)
         if "director" in tags and len(tags["director"]) > 0:
-            anchors = []
-            for director in sorted(tags["director"]):
-                url = "%s?director=%s" % (url_path, urllib.parse.quote(director))
-                anchor = '<a href="%s">%s</a>' % (url, director)
-                anchors.append(anchor)
+            pairs = []
+            for director in tags["director"]:
+                full_name = director
+                last_name = director.split()[-1]
+                alias = director
+                if '|' in director:
+                    full_name = director.split('|')[0]
+                    alias = director.split('|')[1]
+                url = "%s?director=%s&sort=chronological" % (url_path, urllib.parse.quote(full_name))
+                anchor = '<a href="%s">%s</a>' % (url, alias)
+                pair = (last_name, anchor)
+                pairs.append(pair)
+            anchors = [pair[1] for pair in sorted(pairs)]
             html += "<p>director: [ %s ]</p>\n" % ' | '.join(anchors)
         return html
 
@@ -1000,8 +1016,9 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
             release_date = "0000-00-00"
             if 'title' in tmdb_json or 'name' in tmdb_json:
                 title_text = tmdb_json.get('title', tmdb_json.get('name'))
-                release_date = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
-                if len(release_date):
+                rd = tmdb_json.get('release_date', tmdb_json.get('first_air_date'))
+                if len(rd):
+                    release_date = rd
                     release_year = release_date.split('-')[0]
                     title_text += ' (%s)' % release_year
             elif 'title' in metadata:
@@ -1043,15 +1060,9 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
         html += "</ul>\n"
         return html
 
-    def render_video_entry(tuple, current_letter):
+    def render_video_entry(tuple, anchor_id):
         html = ""
         (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x, release_date) = tuple
-        letter = title_text[0].upper()
-        anchor_id = None
-        is_new_section = letter >= 'A' and letter <= 'Z' and letter != current_letter
-        if is_new_section:
-            current_letter = letter
-            anchor_id = "section-%s" % letter
         if proxied_image_url:
             if anchor_id:
                 html += '<div id="%s">\n' % anchor_id
@@ -1071,7 +1082,7 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
                 html += '<ul id="%s"><li><a href="%s">%s</a></li></ul>\n' % (anchor_id, show_url, title_text)
             else:
                 html += '<ul><li><a href="%s">%s</a></li></ul>\n' % (show_url, title_text)
-        return (html, current_letter)
+        return html
 
     html = "<!DOCTYPE html>\n<html>\n"
     html += '<head>\n<meta charset="UTF-8">\n'
@@ -1089,15 +1100,42 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
     html += "<h1>%s (%s)</h1>\n" % (render_url_path_links(url_path), len(triples))
     if len(triples):
         tuples = prepare_tuples(triples, sort) # 80ms for 178 movies
-        titles = list(map(lambda x: x[0], tuples))
         html += render_sort_links()
         html += render_tag_links(tags)
         if sort is None and actor is None and director is None:
+            titles = list(map(lambda x: x[0], tuples))
             html += render_letter_links(titles)
         current_letter = None
+        current_year = None
+        current_rating = None
         for tuple in tuples:
-            (h, current_letter) = render_video_entry(tuple, current_letter)
-            html += h
+            anchor_id = None
+            if sort is None: # alphabetical
+                title_text = tuple[0]
+                letter = title_text[0].upper()
+                is_new_section = letter >= 'A' and letter <= 'Z' and letter != current_letter
+                if is_new_section:
+                    html += "<hr><h2>%s</h2>\n" % letter
+                    anchor_id = "section-%s" % letter
+                    current_letter = letter
+            elif sort == "chronological":
+                release_date = tuple[7]
+                year = int(release_date.split('-')[0])
+                is_new_section = year != current_year
+                if is_new_section:
+                    html += "<hr>\n"
+                    if year > 0:
+                        html += "<h2>%s</h2>\n" % year
+                    current_year = year
+            elif sort == "score":
+                rating = tuple[3]
+                is_new_section = rating != current_rating
+                if is_new_section:
+                    html += "<hr>\n"
+                    if rating >= 0:
+                        html += "<h2>%s ⭐️</h2>\n" % rating
+                    current_rating = rating
+            html += render_video_entry(tuple, anchor_id)
     if url_path == "/":
         html += render_list_links()
     html += "</body>\n"
@@ -1216,7 +1254,7 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
         episodes_jsons = season_json.get('episodes', [])
         if season_num:
             air_date = season_json.get('air_date')
-            heading = '<h2 id="season-%s">Season %s' % (season_num, season_num)
+            heading = '<hr>\n<h2 id="season-%s">Season %s' % (season_num, season_num)
             if air_date:
                 heading += ' (%s)' % air_date.split('-')[0]
             heading += '</h2>\n'
