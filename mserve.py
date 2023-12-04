@@ -1082,6 +1082,7 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
                 html += '<ul><li><a href="%s">%s</a></li></ul>\n' % (show_url, title_text)
         return html
 
+    then = datetime.datetime.now()
     html = "<!DOCTYPE html>\n<html>\n"
     html += '<head>\n<meta charset="UTF-8">\n'
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
@@ -1136,6 +1137,9 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
             html += render_video_entry(tuple, anchor_id)
     if url_path == "/":
         html += render_list_links()
+    now = datetime.datetime.now()
+    elapsed = now - then
+    html += "<br><br><hr><p>Rendered in %0.1fms</p>\n" % (elapsed.total_seconds() * 1000)
     html += "</body>\n"
     html += "</html>\n"
     return html
@@ -1164,11 +1168,14 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
         html = '[ %s ]' % ' | '.join(links)
         return html
 
-    def render_footer():
+    def render_footer(then):
         html = ""
         html += "<br><br><br>\n"
         html += "<hr>\n"
-        html += 'To play <tt>vlc-file://</tt> URLs, install <a href="https://github.com/pepaslabs/VLCFileUrl">VLCFileUrl</a>.\n'
+        html += '<p>To play <tt>vlc-file://</tt> URLs, install <a href="https://github.com/pepaslabs/VLCFileUrl">VLCFileUrl</a>.</p>\n'
+        now = datetime.datetime.now()
+        elapsed = now - then
+        html += "<p>Rendered in %0.1fms</p>\n" % (elapsed.total_seconds() * 1000)
         return html
 
     def render_show_title():
@@ -1278,6 +1285,7 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
             html += '</ul>\n'
         return html
 
+    then = datetime.datetime.now()
     season_groups = scan_for_videos(url_path)
     has_seasons = list_get(list_get(season_groups, 0), 0) != None
     html = "<!DOCTYPE html>\n<html>\n"
@@ -1291,7 +1299,7 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
         html += render_season_links(season_groups) + '<br>\n'
     for season_group in season_groups:
         html += render_season(season_group)
-    html += render_footer()
+    html += render_footer(then)
     html += "</body>\n"
     html += "</html>\n"
     return html
