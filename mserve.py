@@ -663,10 +663,10 @@ def get_json_from_url(url, cache_fpath, headers, rate_limiter=None, cache_only=F
         return {}
 
 
-# Return the JSON for the given show, using cache if available.
+# Return the JSON for the given show, using cache if available, populating sqlite if needed.
 # tmdb_id should be e.g. "tv/1087" or "movie/199".
 # Returns empty dictionary in case of failure.
-def get_tmdb_show_details(tmdb_id):
+def get_tmdb_show_details(tmdb_id, db):
     global g_tmdb_token
     global g_tmdb_rate_limiter
     if tmdb_id is None or len(tmdb_id) == 0:
@@ -680,9 +680,28 @@ def get_tmdb_show_details(tmdb_id):
         headers = [
             ['Authorization', 'Bearer %s' % g_tmdb_token]
         ]
-        return get_json_from_url(url, fpath, headers, rate_limiter=g_tmdb_rate_limiter)
+        js = get_json_from_url(url, fpath, headers, rate_limiter=g_tmdb_rate_limiter)
     else:
-        return get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
+        js = get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
+
+    # populate sqlite if needed.
+    cursor = db.cursor()
+    cursor.execute('SELECT COUNT(id) FROM tmdb_genre WHERE tmdb_id = ?;', (tmdb_id,))
+    row = cursor.fetchone()
+    count = row[0]
+    cursor.close()
+    if count == 0:
+        cursor = db.cursor()
+        if "genres" in js:
+            sql = "INSERT OR REPLACE INTO tmdb_genre (tmdb_id, genre) VALUES (?, ?);"
+            for genre_obj in js["genres"]:
+                genre = genre_obj["name"]
+                print("INSERT genre %s" % genre)
+                cursor.execute(sql, (tmdb_id, genre))
+        db.commit()
+        cursor.close()
+
+    return js
 
 
 # Fetch the credits for a show and add them to the sqlite db if needed.
@@ -712,6 +731,8 @@ def fetch_tmdb_show_details_credits(tmdb_id, db):
         js = get_json_from_url(url, fpath, headers, rate_limiter=g_tmdb_rate_limiter)
     else:
         js = get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
+
+    # populate sqlite if needed.
     cursor = db.cursor()
     if "cast" in js:
         sql = "INSERT OR REPLACE INTO tmdb_cast (tmdb_id, name, character) VALUES (?, ?, ?);"
@@ -912,17 +933,18 @@ def directory_endpoint(handler, db):
     sort = query_dict.get("sort")
     actor = query_dict.get("actor")
     director = query_dict.get("director")
+    genre = query_dict.get("genre")
     metadata = load_mserve_json(url_path)
     if metadata is None:
         send_404(handler)
         return
     tags = metadata.get("tags")
     if metadata["type"] == "directory":
-        body = render_directory(handler, url_path, sort, tags, actor, director, db)
+        body = render_directory(handler, url_path, sort, tags, actor, director, genre, db)
         send_html(handler, 200, body)
     elif metadata["type"] == "series" or metadata["type"] == "movie":
         tmdb_id = metadata.get('tmdb_id')
-        tmdb_json = get_tmdb_show_details(tmdb_id)
+        tmdb_json = get_tmdb_show_details(tmdb_id, db)
         imdb_id = metadata.get('imdb_id')
         if imdb_id is None:
             imdb_id = tmdb_json.get('imdb_id')
@@ -939,7 +961,7 @@ add_regex_route(
     directory_endpoint
 )
 
-def render_directory(handler, url_path, sort, tags, actor, director, db):
+def render_directory(handler, url_path, sort, tags, actor, director, genre, db):
     def render_letter_links(titles):
         if len(titles) < 10:
             return ""
@@ -962,6 +984,8 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
         html = ""
         if tags is None:
             return html
+        
+        # actor links.
         if "actor" in tags and len(tags["actor"]) > 0:
             pairs = []
             for actor in tags["actor"]:
@@ -977,6 +1001,8 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
                 pairs.append(pair)
             anchors = [pair[1] for pair in sorted(pairs)]
             html += "<p>actor: [ %s ]</p>\n" % ' | '.join(anchors)
+        
+        # director links.
         if "director" in tags and len(tags["director"]) > 0:
             pairs = []
             for director in tags["director"]:
@@ -992,6 +1018,15 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
                 pairs.append(pair)
             anchors = [pair[1] for pair in sorted(pairs)]
             html += "<p>director: [ %s ]</p>\n" % ' | '.join(anchors)
+        
+        # genre links.
+        anchors = []
+        for genre in sorted(get_tmdb_genres(db)):
+            url = "%s?genre=%s" % (url_path, urllib.parse.quote(genre))
+            anchor = '<a href="%s">%s</a>' % (url, genre)
+            anchors.append(anchor)
+        html += "<p>genre: [ %s ]</p>\n" % ' | '.join(anchors)
+
         return html
 
     def prepare_tuples(triples, sort):
@@ -1000,7 +1035,7 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
             title, slug, metadata = triple
             show_url = make_url_path(url_path, slug)
             tmdb_id = metadata.get('tmdb_id')
-            tmdb_json = get_tmdb_show_details(tmdb_id)
+            tmdb_json = get_tmdb_show_details(tmdb_id, db)
             fetch_tmdb_show_details_credits(tmdb_id, db)
             imdb_id = metadata.get('imdb_id')
             if imdb_id is None:
@@ -1088,14 +1123,14 @@ def render_directory(handler, url_path, sort, tags, actor, director, db):
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
     html += "</head>\n"
     html += "<body>\n"
+    tmdb_ids = None
     if actor is not None:
         tmdb_ids = get_tmdb_ids_for_actor(actor, db)
-        triples = scan_dir(url_path, sort, tmdb_ids=tmdb_ids)
     elif director is not None:
         tmdb_ids = get_tmdb_ids_for_director(director, db)
-        triples = scan_dir(url_path, sort, tmdb_ids=tmdb_ids)
-    else:
-        triples = scan_dir(url_path, sort) # 23ms for 178 movies
+    elif genre is not None:
+        tmdb_ids = get_tmdb_ids_for_genre(genre, db)
+    triples = scan_dir(url_path, sort, tmdb_ids=tmdb_ids) # 23ms for 178 movies
     html += "<h1>%s (%s)</h1>\n" % (render_url_path_links(url_path), len(triples))
     if len(triples):
         tuples = prepare_tuples(triples, sort) # 80ms for 178 movies
@@ -1316,6 +1351,7 @@ def get_db():
 
 def init_db():
     db = get_db()
+
     # tmdb credits JSON:
     # "cast": [
     #     {
@@ -1341,6 +1377,7 @@ CREATE TABLE IF NOT EXISTS tmdb_cast (
     UNIQUE(tmdb_id, name, character)
 );
 """)
+
     # tmdb credits JSON:
     # "crew": [
     #     {
@@ -1365,6 +1402,23 @@ CREATE TABLE IF NOT EXISTS tmdb_crew (
     UNIQUE(tmdb_id, name, job)
 );
 """)
+
+    # tmdb genre JSON:
+    # {
+    #   "genres": [
+    #     {
+    #       "id": 28,
+    #       "name": "Action"
+    #     },
+    db.execute("""
+CREATE TABLE IF NOT EXISTS tmdb_genre (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tmdb_id TEXT NOT NULL, -- e.g. 'tv/123' or 'movie/456'
+    genre TEXT NOT NULL, -- e.g. 'Action'
+    UNIQUE(tmdb_id, genre)
+);
+""")
+
     db.close()
 
 
@@ -1393,6 +1447,24 @@ def get_director(tmdb_id, db):
     director = cursor.fetchone()
     cursor.close()
     return director
+
+
+# Returns the list of all genres.
+def get_tmdb_genres(db):
+    cursor = db.cursor()
+    cursor.execute('SELECT DISTINCT genre FROM tmdb_genre;')
+    genres = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    return genres
+
+
+# Returns the list of tmdb_ids matching the genre.
+def get_tmdb_ids_for_genre(genre, db):
+    cursor = db.cursor()
+    cursor.execute('SELECT tmdb_id FROM tmdb_genre WHERE genre = ?;', (genre,))
+    tmdb_ids = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    return tmdb_ids
 
 
 #
