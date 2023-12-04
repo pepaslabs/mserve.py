@@ -33,10 +33,8 @@ import sqlite3
 # The directory in which to look for media files.
 if 'MSERVE_MEDIA_DIR' in os.environ:
     g_media_dir = os.environ['MSERVE_MEDIA_DIR']
-elif os.path.exists(os.getcwd() + '/mserve.json'):
-    g_media_dir = os.getcwd()
 else:
-    g_media_dir = os.environ['HOME'] + '/Movies'
+    g_media_dir = os.getcwd()
 
 # The token used to access the themoviedb.org API.
 g_tmdb_token = None
@@ -675,7 +673,7 @@ def get_tmdb_show_details(tmdb_id):
         return {}
     tmdb_type = tmdb_id.split("/")[0]
     tmdb_num = tmdb_id.split("/")[1]
-    dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
+    dpath = make_file_path(g_media_dir, ".mserve/tmdb_cache/%s" % tmdb_type)
     fpath = make_file_path(dpath, "%s.json" % tmdb_num)
     url = "https://api.themoviedb.org/3/%s" % tmdb_id
     if g_tmdb_token:
@@ -704,7 +702,7 @@ def fetch_tmdb_show_details_credits(tmdb_id, db):
     cursor.close()
     if count > 0:
         return
-    dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
+    dpath = make_file_path(g_media_dir, ".mserve/tmdb_cache/%s" % tmdb_type)
     fpath = make_file_path(dpath, "%s.credits.json" % tmdb_num)
     url = "https://api.themoviedb.org/3/%s/credits" % tmdb_id
     if g_tmdb_token:
@@ -741,7 +739,7 @@ def get_tmdb_season_details(tmdb_id, season_num):
         return {}
     tmdb_type = tmdb_id.split("/")[0]
     tmdb_num = tmdb_id.split("/")[1]
-    dpath = make_file_path("~/.mserve/tmdb_cache/%s" % tmdb_type)
+    dpath = make_file_path(g_media_dir, ".mserve/tmdb_cache/%s" % tmdb_type)
     fpath = make_file_path(dpath, "%s.season%s.json" % (tmdb_num, season_num))
     url = "https://api.themoviedb.org/3/%s/season/%s" % (tmdb_id, season_num)
     if g_tmdb_token:
@@ -793,7 +791,7 @@ def get_imdb_rating(imdb_id):
     global g_moviesdatabase_rate_limiter
     if imdb_id is None or imdb_id == "":
         return {}
-    dpath = make_file_path("~/.mserve/moviesdatabase_cache")
+    dpath = make_file_path(g_media_dir, ".mserve/moviesdatabase_cache")
     fpath = make_file_path(dpath, "%s.ratings.json" % imdb_id)
     url = "https://moviesdatabase.p.rapidapi.com/titles/%s/ratings" % imdb_id
     if g_rapidapi_key:
@@ -869,7 +867,7 @@ def image_endpoint(handler, db):
     size_class = url_path.split('/')[-2]
     tmdb_image_url = "https://image.tmdb.org/t/p/%s/%s" % (size_class, tmdb_image_fname)
     proxied_image_url = "/tmdb-images/%s/%s" % (size_class, tmdb_image_fname)
-    image_cache_fpath = make_file_path("~/.mserve/tmdb_cache/%s/%s" % (size_class, tmdb_image_fname))
+    image_cache_fpath = make_file_path(g_media_dir, ".mserve/tmdb_cache/%s/%s" % (size_class, tmdb_image_fname))
     data = get_file_from_url(tmdb_image_url, image_cache_fpath)
     send_file(handler, image_cache_fpath, data=data, immutable=True)
 
@@ -1304,7 +1302,7 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
 #
 
 def get_db():
-    db_fpath = make_file_path("~/.mserve/db.sqlite3")
+    db_fpath = make_file_path(g_media_dir, ".mserve/db.sqlite3")
     return sqlite3.connect(db_fpath)
 
 
