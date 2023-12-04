@@ -1480,7 +1480,7 @@ if __name__ == "__main__":
         # otherwise start the server.
         init_db()
         port = 8000
-        address_pair = ('', 8000)
+        address_pair = ('', port)
         server = http.server.ThreadingHTTPServer(address_pair, Handler)
         sys.stderr.write("Serving from directory %s\n" % g_media_dir)
         sys.stderr.write("Routable IP address detected as %s\n" % g_ip_address)
