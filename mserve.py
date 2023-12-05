@@ -696,7 +696,7 @@ def get_tmdb_show_details(tmdb_id, db):
             sql = "INSERT OR REPLACE INTO tmdb_genre (tmdb_id, genre) VALUES (?, ?);"
             for genre_obj in js["genres"]:
                 genre = genre_obj["name"]
-                sys.stderr.write("INSERT genre %s\n" % genre)
+                sys.stderr.write("INSERT genre %s (tmdb_id %s)\n" % (genre,tmdb_id))
                 cursor.execute(sql, (tmdb_id, genre))
         db.commit()
         cursor.close()
@@ -708,48 +708,50 @@ def get_tmdb_show_details(tmdb_id, db):
 # tmdb_id should be e.g. "tv/1087" or "movie/199".
 # Does not return a value.
 def fetch_tmdb_show_details_credits(tmdb_id, db):
+    def should_populate_db():
+        cursor = db.cursor()
+        sql = 'SELECT (SELECT COUNT(id) FROM tmdb_cast WHERE tmdb_id = ?) + (SELECT COUNT(id) FROM tmdb_crew WHERE tmdb_id = ?);'
+        cursor.execute(sql, (tmdb_id,tmdb_id))
+        row = cursor.fetchone()
+        count = row[0]
+        cursor.close()
+        return count == 0
+
     global g_tmdb_token
     global g_tmdb_rate_limiter
     if tmdb_id is None or len(tmdb_id) == 0:
         return
-    tmdb_type = tmdb_id.split("/")[0]
-    tmdb_num = tmdb_id.split("/")[1]
-    cursor = db.cursor()
-    cursor.execute('SELECT COUNT(id) FROM tmdb_cast WHERE tmdb_id = ?;', (tmdb_id,))
-    row = cursor.fetchone()
-    count = row[0]
-    cursor.close()
-    if count > 0:
-        return
-    dpath = make_file_path(g_media_dir, ".mserve/tmdb_cache/%s" % tmdb_type)
-    fpath = make_file_path(dpath, "%s.credits.json" % tmdb_num)
-    url = "https://api.themoviedb.org/3/%s/credits" % tmdb_id
-    if g_tmdb_token:
-        headers = [
-            ['Authorization', 'Bearer %s' % g_tmdb_token]
-        ]
-        js = get_json_from_url(url, fpath, headers, rate_limiter=g_tmdb_rate_limiter)
-    else:
-        js = get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
+    if should_populate_db():
+        tmdb_type = tmdb_id.split("/")[0]
+        tmdb_num = tmdb_id.split("/")[1]
+        dpath = make_file_path(g_media_dir, ".mserve/tmdb_cache/%s" % tmdb_type)
+        fpath = make_file_path(dpath, "%s.credits.json" % tmdb_num)
+        url = "https://api.themoviedb.org/3/%s/credits" % tmdb_id
+        if g_tmdb_token:
+            headers = [
+                ['Authorization', 'Bearer %s' % g_tmdb_token]
+            ]
+            js = get_json_from_url(url, fpath, headers, rate_limiter=g_tmdb_rate_limiter)
+        else:
+            js = get_json_from_url(url, fpath, [], rate_limiter=g_tmdb_rate_limiter, cache_only=True)
 
-    # populate sqlite if needed.
-    cursor = db.cursor()
-    if "cast" in js:
-        sql = "INSERT OR REPLACE INTO tmdb_cast (tmdb_id, name, character) VALUES (?, ?, ?);"
-        for credit in js["cast"]:
-            name = credit["name"]
-            character = credit["character"]
-            sys.stderr.write("INSERT tmdb_cast %s\n" % name)
-            cursor.execute(sql, (tmdb_id, name, character))
-    if "crew" in js:
-        sql = "INSERT OR REPLACE INTO tmdb_crew (tmdb_id, name, job) VALUES (?, ?, ?);"
-        for credit in js["crew"]:
-            name = credit["name"]
-            job = credit["job"]
-            sys.stderr.write("INSERT tmdb_crew %s\n" % name)
-            cursor.execute(sql, (tmdb_id, name, job))
-    db.commit()
-    cursor.close()
+        cursor = db.cursor()
+        if "cast" in js:
+            sql = "INSERT OR REPLACE INTO tmdb_cast (tmdb_id, name, character) VALUES (?, ?, ?);"
+            for credit in js["cast"]:
+                name = credit["name"]
+                character = credit["character"]
+                sys.stderr.write("INSERT tmdb_cast %s as %s (tmdb_id %s)\n" % (name,character,tmdb_id))
+                cursor.execute(sql, (tmdb_id, name, character))
+        if "crew" in js:
+            sql = "INSERT OR REPLACE INTO tmdb_crew (tmdb_id, name, job) VALUES (?, ?, ?);"
+            for credit in js["crew"]:
+                name = credit["name"]
+                job = credit["job"]
+                sys.stderr.write("INSERT tmdb_crew %s, %s (tmdb_id %s)\n" % (name,job,tmdb_id))
+                cursor.execute(sql, (tmdb_id, name, job))
+        db.commit()
+        cursor.close()
 
 
 # Return the JSON for the given season, using cache if available.
