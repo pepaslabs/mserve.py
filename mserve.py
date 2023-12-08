@@ -1185,6 +1185,9 @@ def render_directory(handler, url_path, sort, tags, actor, director, genre, db):
 
 
 def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating_json, db):
+    def should_render_vlc_file_links():
+        return is_macos_or_ipad(handler)
+
     def render_links(fname):
         file_url = make_url_path(url_path, fname)
         player_url = make_url_path(url_path, fname, 'player')
@@ -1199,7 +1202,7 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
         if is_ios_or_macos_safari(handler):
             link = '<a href="%s">vlc</a>' % vlc_callback_url
             links.append(link)
-        if is_macos_or_ipad(handler):
+        if should_render_vlc_file_links():
             link = '<a href="%s">vlc-file</a>' % vlc_file_url
             links.append(link)
         link = '<a href="%s">file</a>' % file_url
@@ -1211,7 +1214,8 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
         html = ""
         html += "<br><br><br>\n"
         html += "<hr>\n"
-        html += '<p>To play <tt>vlc-file://</tt> URLs, install <a href="https://github.com/pepaslabs/VLCFileUrl">VLCFileUrl</a>.</p>\n'
+        if should_render_vlc_file_links():
+            html += '<p>To play <tt>vlc-file://</tt> URLs, install <a href="https://github.com/pepaslabs/VLCFileUrl">VLCFileUrl</a>.</p>\n'
         now = datetime.datetime.now()
         elapsed = now - then
         html += "<p>Rendered in %0.1fms</p>\n" % (elapsed.total_seconds() * 1000)
