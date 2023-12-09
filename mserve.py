@@ -54,8 +54,8 @@ if 'RAPIDAPI_KEY' in os.environ:
 # Configurable sql logging.
 g_debug_sql = False
 def log_sql(msg):
-    global debug_sql
-    if debug_sql:
+    global g_debug_sql
+    if g_debug_sql:
         sys.stderr.write(msg)
 
 
@@ -1248,9 +1248,9 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
             rating = -1
             if 'results' in rating_json:
                 rating = rating_json['results']['averageRating']
-            director = get_director(tmdb_id, db)
-            if director is not None:
-                html += '<p>Directed by %s.</p>\n' % director
+            directors = get_directors(tmdb_id, db)
+            if len(directors) > 0:
+                html += '<p>Directed by %s.</p>\n' % ', '.join(directors)
             if rating > 0:
                 html += '<p><a href="https://www.imdb.com/title/%s/">imdb</a>: %s ⭐️</p>\n' % (imdb_id, rating)
         elif 'title' in metadata:
@@ -1456,13 +1456,13 @@ def get_tmdb_ids_for_director(name, db):
     return tmdb_ids
 
 
-# Returns the director's name for the given tmdb_id.
-def get_director(tmdb_id, db):
+# Returns the directors' names for the given tmdb_id.
+def get_directors(tmdb_id, db):
     cursor = db.cursor()
     cursor.execute('SELECT name FROM tmdb_crew WHERE tmdb_id = ? AND UPPER(job) = "DIRECTOR";', (tmdb_id,))
-    director = cursor.fetchone()
+    directors = [row[0] for row in cursor.fetchall()]
     cursor.close()
-    return director
+    return directors
 
 
 # Returns the list of all genres.
