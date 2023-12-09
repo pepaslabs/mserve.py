@@ -51,6 +51,14 @@ if 'RAPIDAPI_KEY' in os.environ:
 # Python utils
 #
 
+# Configurable sql logging.
+g_debug_sql = False
+def log_sql(msg):
+    global debug_sql
+    if debug_sql:
+        sys.stderr.write(msg)
+
+
 # Safe array access.
 # Thanks to https://stackoverflow.com/a/5125636
 def list_get(l, index, default=None):
@@ -696,7 +704,7 @@ def get_tmdb_show_details(tmdb_id, db):
             sql = "INSERT OR REPLACE INTO tmdb_genre (tmdb_id, genre) VALUES (?, ?);"
             for genre_obj in js["genres"]:
                 genre = genre_obj["name"]
-                sys.stderr.write("INSERT genre %s (tmdb_id %s)\n" % (genre,tmdb_id))
+                log_sql("INSERT genre %s (tmdb_id %s)\n" % (genre,tmdb_id))
                 cursor.execute(sql, (tmdb_id, genre))
         db.commit()
         cursor.close()
@@ -741,14 +749,14 @@ def fetch_tmdb_show_details_credits(tmdb_id, db):
             for credit in js["cast"]:
                 name = credit["name"]
                 character = credit["character"]
-                sys.stderr.write("INSERT tmdb_cast %s as %s (tmdb_id %s)\n" % (name,character,tmdb_id))
+                log_sql("INSERT tmdb_cast %s as %s (tmdb_id %s)\n" % (name,character,tmdb_id))
                 cursor.execute(sql, (tmdb_id, name, character))
         if "crew" in js:
             sql = "INSERT OR REPLACE INTO tmdb_crew (tmdb_id, name, job) VALUES (?, ?, ?);"
             for credit in js["crew"]:
                 name = credit["name"]
                 job = credit["job"]
-                sys.stderr.write("INSERT tmdb_crew %s, %s (tmdb_id %s)\n" % (name,job,tmdb_id))
+                log_sql("INSERT tmdb_crew %s, %s (tmdb_id %s)\n" % (name,job,tmdb_id))
                 cursor.execute(sql, (tmdb_id, name, job))
         db.commit()
         cursor.close()
