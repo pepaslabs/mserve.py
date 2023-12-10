@@ -1033,12 +1033,30 @@ def render_directory(handler, url_path, sort, tags, actor, director, genre, db):
         
         # genre links.
         anchors = []
-        for genre in sorted(get_tmdb_genres(db)):
+        for genre in sorted(get_all_genres(db)):
             url = "%s?genre=%s" % (url_path, urllib.parse.quote(genre))
             anchor = '<a href="%s">%s</a>' % (url, genre)
             anchors.append(anchor)
         html += "<p>genre: [ %s ]</p>\n" % ' | '.join(anchors)
 
+        return html
+
+    def render_list_links():
+        html = ""
+        html += "<br><br>\n"
+        html += "<h2>lists:</h2>\n"
+        html += "<ul>\n"
+        html += '<li><a href="https://www.afi.com/afi-lists/">AFI lists</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/chart/top/">IMDB Top 250 movies</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/search/title/?count=100&groups=top_1000&sort=user_rating">IMDB Top 1000 movies (by rating)</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/search/title/?groups=top_1000">IMDB Top 1000 movies (by popularity)</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/list/ls048276758/">rodneyjoneswriter\'s top 1000 films</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/list/ls090245754/">rodneyjoneswriter\'s top 2000 films</a></li>\n'
+        html += '<li><a href="https://www.imdb.com/chart/toptv/">IMDB Top 250 TV shows</a></li>\n'
+        html += '<li><a href="https://editorial.rottentomatoes.com/all-time-lists/">Rotten Tomatoes lists</a></li>\n'
+        html += '<li><a href="https://www.metacritic.com/browse/movie/">Metacritic movies</a></li>\n'
+        html += '<li><a href="https://www.metacritic.com/browse/tv/">Metacritic TV shows</a></li>\n'
+        html += "</ul>\n"
         return html
 
     def prepare_tuples(triples, sort):
@@ -1072,42 +1090,25 @@ def render_directory(handler, url_path, sort, tags, actor, director, genre, db):
                 title_text = show_url.split('/')[-1]
             proxied_image_url = None
             proxied_image_url_2x = None
-            if 'poster_path' in tmdb_json:
-                proxied_image_url = "/tmdb-images/w92%s" % tmdb_json.get('poster_path')
-                proxied_image_url_2x = "/tmdb-images/w185%s" % tmdb_json.get('poster_path')
-            tuple = (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x, release_date)
+            if 'poster_path' in tmdb_json and tmdb_json['poster_path'] is not None:
+                proxied_image_url = "/tmdb-images/w92%s" % tmdb_json['poster_path']
+                proxied_image_url_2x = "/tmdb-images/w185%s" % tmdb_json['poster_path']
+            genres = get_genres_for_tmdb_id(tmdb_id, db)
+            tuple = (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x, release_date, genres)
             tuples.append(tuple)
         if sort == "score":
-            tuples = [(rating, a, b, c, e, f, g, h) for (a, b, c, rating, e, f, g, h) in tuples]
+            tuples = [(rating, a, b, c, e, f, g, h, i) for (a, b, c, rating, e, f, g, h, i) in tuples]
             tuples.sort(reverse=True)
-            tuples = [(a, b, c, rating, e, f, g, h) for (rating, a, b, c, e, f, g, h) in tuples]
+            tuples = [(a, b, c, rating, e, f, g, h, i) for (rating, a, b, c, e, f, g, h, i) in tuples]
         elif sort == "chronological":
-            tuples = [(release_date, a, b, c, d, e, f, g) for (a, b, c, d, e, f, g, release_date) in tuples]
+            tuples = [(release_date, a, b, c, d, e, f, g, h) for (a, b, c, d, e, f, g, release_date, h) in tuples]
             tuples.sort(reverse=True)
-            tuples = [(a, b, c, d, e, f, g, release_date) for (release_date, a, b, c, d, e, f, g) in tuples]
+            tuples = [(a, b, c, d, e, f, g, release_date, h) for (release_date, a, b, c, d, e, f, g, h) in tuples]
         return tuples
 
-    def render_list_links():
-        html = ""
-        html += "<br><br>\n"
-        html += "<h2>lists:</h2>\n"
-        html += "<ul>\n"
-        html += '<li><a href="https://www.afi.com/afi-lists/">AFI lists</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/chart/top/">IMDB Top 250 movies</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/search/title/?count=100&groups=top_1000&sort=user_rating">IMDB Top 1000 movies (by rating)</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/search/title/?groups=top_1000">IMDB Top 1000 movies (by popularity)</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/list/ls048276758/">rodneyjoneswriter\'s top 1000 films</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/list/ls090245754/">rodneyjoneswriter\'s top 2000 films</a></li>\n'
-        html += '<li><a href="https://www.imdb.com/chart/toptv/">IMDB Top 250 TV shows</a></li>\n'
-        html += '<li><a href="https://editorial.rottentomatoes.com/all-time-lists/">Rotten Tomatoes lists</a></li>\n'
-        html += '<li><a href="https://www.metacritic.com/browse/movie/">Metacritic movies</a></li>\n'
-        html += '<li><a href="https://www.metacritic.com/browse/tv/">Metacritic TV shows</a></li>\n'
-        html += "</ul>\n"
-        return html
-
     def render_video_entry(tuple, anchor_id):
-        html = ""
-        (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x, release_date) = tuple
+        html = "\n"
+        (title_text, slug, metadata, rating, show_url, proxied_image_url, proxied_image_url_2x, release_date, genres) = tuple
         if proxied_image_url:
             if anchor_id:
                 html += '<div id="%s">\n' % anchor_id
@@ -1118,8 +1119,14 @@ def render_directory(handler, url_path, sort, tags, actor, director, genre, db):
             html += '</div>\n'
             html += '<div style="display: inline-block; vertical-align: middlet;">\n'
             html += '<a href="%s">%s</a>\n' % (show_url, title_text)
+            html += '<ul>'
             if rating is not None and rating > 0:
-                html += '<ul><li>imdb: %s ⭐️</li></ul>\n' % rating
+                html += '<li>%s ⭐️</li>\n' % rating
+            if len(genres) == 1:
+                html += '<li>%s</li>\n' % genres[0]
+            elif len(genres) > 1:
+                html += '<li>%s</li>\n' % ', '.join(genres)
+            html += '</ul>\n'
             html += '</div>\n'
             html += "</div>\n"
         else:
@@ -1182,6 +1189,7 @@ def render_directory(handler, url_path, sort, tags, actor, director, genre, db):
                         html += "<h2>%s ⭐️</h2>\n" % rating
                     current_rating = rating
             html += render_video_entry(tuple, anchor_id)
+    html += '\n'
     if url_path == "/":
         html += render_list_links()
     now = datetime.datetime.now()
@@ -1192,6 +1200,7 @@ def render_directory(handler, url_path, sort, tags, actor, director, genre, db):
     return html
 
 
+# Render the detail page for a movie or series.
 def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating_json, db):
     def should_render_vlc_file_links():
         return is_macos_or_ipad(handler)
@@ -1229,7 +1238,7 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
         html += "<p>Rendered in %0.1fms</p>\n" % (elapsed.total_seconds() * 1000)
         return html
 
-    def render_show_title():
+    def render_show_details():
         html = ""
         if 'title' in tmdb_json or 'name' in tmdb_json:
             title_line = tmdb_json.get('title', tmdb_json.get('name'))
@@ -1248,11 +1257,16 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
             rating = -1
             if 'results' in rating_json:
                 rating = rating_json['results']['averageRating']
-            directors = get_directors(tmdb_id, db)
+            directors = get_directors_for_tmdb_id(tmdb_id, db)
             if len(directors) > 0:
                 html += '<p>Directed by %s.</p>\n' % ', '.join(directors)
+            genres = get_genres_for_tmdb_id(tmdb_id, db)
+            if len(genres) == 1:
+                html += '<p>Genre: %s.</p>\n' % genres[0]
+            elif len(genres) > 1:
+                html += '<p>Genres: %s.</p>\n' % ', '.join(genres)
             if rating > 0:
-                html += '<p><a href="https://www.imdb.com/title/%s/">imdb</a>: %s ⭐️</p>\n' % (imdb_id, rating)
+                html += '<p><a href="https://www.imdb.com/title/%s/">IMDB</a>: %s ⭐️</p>\n' % (imdb_id, rating)
         elif 'title' in metadata:
             html += '<h1>%s</h1>\n' % metadata['title']
         return html
@@ -1345,7 +1359,7 @@ def render_show(handler, url_path, metadata, tmdb_id, tmdb_json, imdb_id, rating
     html += "</head>\n"
     html += "<body>\n"
     html += "<h1>%s</h1>\n" % render_url_path_links(url_path)
-    html += render_show_title()
+    html += render_show_details()
     if len(season_groups) > 1:
         html += render_season_links(season_groups) + '<br>\n'
     for season_group in season_groups:
@@ -1457,7 +1471,7 @@ def get_tmdb_ids_for_director(name, db):
 
 
 # Returns the directors' names for the given tmdb_id.
-def get_directors(tmdb_id, db):
+def get_directors_for_tmdb_id(tmdb_id, db):
     cursor = db.cursor()
     cursor.execute('SELECT name FROM tmdb_crew WHERE tmdb_id = ? AND UPPER(job) = "DIRECTOR";', (tmdb_id,))
     directors = [row[0] for row in cursor.fetchall()]
@@ -1466,12 +1480,12 @@ def get_directors(tmdb_id, db):
 
 
 # Returns the list of all genres.
-def get_tmdb_genres(db):
+def get_all_genres(db):
     cursor = db.cursor()
     cursor.execute('SELECT DISTINCT genre FROM tmdb_genre;')
     genres = [row[0] for row in cursor.fetchall()]
     cursor.close()
-    return genres
+    return sorted(genres)
 
 
 # Returns the list of tmdb_ids matching the genre.
@@ -1481,6 +1495,15 @@ def get_tmdb_ids_for_genre(genre, db):
     tmdb_ids = [row[0] for row in cursor.fetchall()]
     cursor.close()
     return tmdb_ids
+
+
+# Returns the list of tmdb_ids matching the genre.
+def get_genres_for_tmdb_id(tmdb_id, db):
+    cursor = db.cursor()
+    cursor.execute('SELECT genre FROM tmdb_genre WHERE tmdb_id = ?;', (tmdb_id,))
+    genres = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    return sorted(genres)
 
 
 #
