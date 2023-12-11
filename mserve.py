@@ -216,6 +216,10 @@ def send_text(handler, code, body):
 def send_400(handler, message):
     send_text(handler, 400, "Bad request: %s" % message)
 
+# Send 'Unauthorized'.
+def send_401(handler):
+    send_text(handler, 401, "Unauthorized")
+
 # Send 'Not found'.
 def send_404(handler):
     send_text(handler, 404, "Not found")
@@ -294,6 +298,7 @@ def send_file(handler, fpath, is_head=False, data=None, content_type=None, immut
     if not os.path.exists(fpath):
         send_404(handler)
         return
+
     try:
         range_header = parse_range_header(handler)
     except:
@@ -920,6 +925,10 @@ def file_endpoint(handler, db):
     url_path, query_dict = parse_GET_path(handler.path)
     fpath = make_file_path(g_media_dir, url_path)
     is_head = (handler.command == 'HEAD')
+    # security: don't serve the file if there isn't an mserve.json file present in the directory.
+    if not os.path.isfile(os.path.join(os.path.dirname(fpath), "mserve.json")):
+        send_401(handler)
+        return
     send_file(handler, fpath, is_head)
 
 add_regex_route(
