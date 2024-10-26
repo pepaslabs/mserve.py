@@ -476,12 +476,15 @@ def slugify(name):
     return slug
 
 # Rename a file (or dir) using a slugified name.
-def slugify_file(fname):
+def slugify_file(fname, should_prompt=True):
     fname = fname.rstrip('/')
     slug_fname = slugify(fname)
     if fname == slug_fname:
         return
-    answer = input("Rename '%s' to '%s'? [Yn]: " % (fname, slug_fname))
+    if not should_prompt:
+        answer = 'y'
+    else:
+        answer = input("Rename '%s' to '%s'? [Yn]: " % (fname, slug_fname))
     if answer.lower() == 'y' or answer == '':
         os.rename(fname, slug_fname)
 
@@ -1522,8 +1525,16 @@ def get_genres_for_tmdb_id(tmdb_id, db):
 if __name__ == "__main__":
     if sys.argv[0].split('/')[-1] == 'slugify.py':
         # if we were invoked as 'slugify.py' symlink, act as a renaming utility.
-        for arg in sys.argv[1:]:
-            slugify_file(arg)
+        args = sys.argv[1:]
+        if args[0] == '-p':
+            for arg in args[1:]:
+                print(slugify(arg))
+        else:
+            should_prompt = True
+            if args[0] == '-y':
+                should_prompt = False
+            for arg in args:
+                slugify_file(arg, should_prompt)
     else:
         # otherwise start the server.
         init_db()

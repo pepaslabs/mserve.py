@@ -10,12 +10,31 @@ import sys
 import os
 import re
 
-re1 = sys.argv[1]
-re2 = sys.argv[2]
-fnames = sys.argv[3:]
+args = sys.argv[1:]
+
+just_print = False
+if "-p" == args[0]:
+    just_print = True
+    args = args[1:]
+
+yes = False
+if "-y" == args[0]:
+    yes = True
+    args = args[1:]
+
+re1 = args[0]
+re2 = args[1]
+fnames = args[2:]
+
 for fname in fnames:
     fname2 = re.sub(re1, re2, fname)
-    if fname2 != fname:
-        answer = input("Rename '%s' -> '%s'? [Yn] " % (fname, fname2))
-        if answer.lower() == 'y' or answer == '':
-            os.rename(fname, fname2)
+    if just_print:
+        print(fname2)
+    else:
+        if fname2 != fname:
+            if yes:
+                answer = 'y'
+            else:
+                answer = input("Rename '%s' -> '%s'? [Yn] " % (fname, fname2))
+            if answer.lower() == 'y' or answer == '':
+                os.rename(fname, fname2)
